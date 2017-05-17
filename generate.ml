@@ -68,15 +68,25 @@ let gen_const typ =
   | _ ->
     Cil.mkCast ~force:false ~e:(Cil.zero ~loc) ~newt:typ
 
+(* Initialize a local variable to a constant or a parameter. *)
 let gen_local_init vi =
-  let assign = Set (Cil.var vi, gen_const vi.vtype, loc) in
+  let gen_param_use typ =
+    if !fundec.sformals <> [] then
+      let var = Utils.random_select !fundec.sformals in
+      Cil.mkCast ~force:false ~e:(Cil.evar var) ~newt:typ
+    else
+      (* OK, fall back to constants. *)
+      gen_const typ
+  in
+  let generators = [gen_const; gen_param_use] in
+  let f = Utils.random_select generators in
+  let assign = Set (Cil.var vi, f vi.vtype, loc) in
   Cil.mkStmtOneInstr ~valid_sid:true assign
 
 let gen_var_use ~num_live () =
   (* Select a known local var or parameter of the function, or generate a
      new variable. *)
-  let typ = gen_type () in
-  let new_var () = gen_var typ in
+  let new_var () = gen_var (gen_type ()) in
   let select_or_new vars =
     if vars <> [] then Utils.random_select vars else new_var ()
   in
@@ -97,7 +107,7 @@ let gen_var_use ~num_live () =
   let live =
     if vi.vformal then Varinfo.Set.empty else Varinfo.Set.singleton vi
   in
-  (live, Cil.mkCast ~force:false ~e:(Cil.evar vi) ~newt:typ)
+  (live, Cil.evar vi)
 
 let gen_leaf_exp ~depth ~num_live () =
   let gen_const ~num_live () =
