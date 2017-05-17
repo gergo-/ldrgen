@@ -46,6 +46,14 @@ module ExprDepth = Int
     let help = "set maximal expression depth"
   end)
 
+module StmtDepth = Int
+  (struct
+    let option_name = "-ldrgen-stmt-depth"
+    let arg_name = "d"
+    let default = 3
+    let help = "set maximal statement nesting depth"
+  end)
+
 module MaxLive = Int
   (struct
     let option_name = "-ldrgen-max-live"

@@ -23,6 +23,7 @@ include Plugin.General_services
 module Run: Parameter_sig.Bool
 module Seed: Parameter_sig.Int
 module ExprDepth: Parameter_sig.Int
+module StmtDepth: Parameter_sig.Int
 module MaxLive: Parameter_sig.Int
 
 (** Initialize global state, such as the random number generator. *)

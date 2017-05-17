@@ -154,25 +154,64 @@ and gen_unop ~depth ~num_live () =
   let op = Utils.random_select unops in
   (live, Cil.new_exp ~loc (UnOp (op, exp, typ)))
 
-let gen_exp ~num_live typ =
+let gen_exp ~num_live ?typ () =
   let live, exp = gen_exp ~depth:1 ~num_live () in
-  (live, Cil.mkCast ~force:false ~e:exp ~newt:typ)
+  match typ with
+  | Some typ -> (live, Cil.mkCast ~force:false ~e:exp ~newt:typ)
+  | None -> (live, exp)
 
-let gen_stmts ~live ~tail () =
+let gen_cond ~num_live () =
+  let llive, lexp = gen_exp ~num_live () in
+  let rlive, rexp = gen_exp ~num_live () in
+  let lexp, rexp = gen_common_type_exprs lexp rexp in
+  let comparisons = [Lt; Gt; Le; Ge; Eq; Ne] in
+  let cmp = Utils.random_select comparisons in
+  let live = Varinfo.Set.union llive rlive in
+  (live, Cil.mkBinOp ~loc cmp lexp rexp)
+
+let gen_assignment ~depth ~live () =
+  let num_live = Varinfo.Set.cardinal live in
+  let vi = Utils.random_select_from_set live in
+  let (new_live_vars, exp) = gen_exp ~num_live ~typ:vi.vtype () in
+  let live =
+    Varinfo.Set.union (Varinfo.Set.remove vi live) new_live_vars
+  in
+  let assign = Set (Cil.var vi, exp, loc) in
+  let stmt = Cil.mkStmtOneInstr ~valid_sid:true assign in
+  (live, stmt)
+
+let rec gen_stmt ~depth ~live () =
+  let generators =
+    if depth < Options.StmtDepth.get () then
+      [gen_assignment; gen_if_stmt]
+    else
+      [gen_assignment]
+  in
+  let f = Utils.random_select generators in
+  f ~depth ~live ()
+
+and gen_if_stmt ~depth ~live () =
+  let depth = depth + 1 in
+  let (true_live, true_stmts) = gen_stmts ~depth ~live ~tail:[] () in
+  let (false_live, false_stmts) = gen_stmts ~depth ~live ~tail:[] () in
+  let body_live = Varinfo.Set.union true_live false_live in
+  let num_live = Varinfo.Set.cardinal body_live in
+  let (cond_new_live, cond) = gen_cond ~num_live () in
+  let live = Varinfo.Set.union body_live cond_new_live in
+  let if_stmt =
+    Cil.mkStmt ~valid_sid:true
+      (If (cond, Cil.mkBlock true_stmts, Cil.mkBlock false_stmts, loc))
+  in
+  (live, if_stmt)
+
+and gen_stmts ~depth ~live ~tail () =
   let rec rec_gen_stmts n ~live ~tail =
-    let num_live = Varinfo.Set.cardinal live in
     (* Stop when we have generated [n] statements or when we have no more
        live variables to define. *)
-    if n < 1 || num_live = 0 then
+    if n < 1 || Varinfo.Set.is_empty live then
       (live, tail)
     else
-      let vi = Utils.random_select_from_set live in
-      let (new_live_vars, exp) = gen_exp ~num_live vi.vtype in
-      let live =
-        Varinfo.Set.union (Varinfo.Set.remove vi live) new_live_vars
-      in
-      let assign = Set (Cil.var vi, exp, loc) in
-      let stmt = Cil.mkStmtOneInstr ~valid_sid:true assign in
+      let (live, stmt) = gen_stmt ~depth ~live () in
       rec_gen_stmts (n-1) ~live ~tail:(stmt :: tail)
   in
   rec_gen_stmts (5 - List.length tail) ~live ~tail
@@ -181,7 +220,7 @@ let gen_function () =
   let typ = gen_type () in
   Cil.setReturnType !fundec typ;
   let (live, return) = gen_return ~typ () in
-  let (live', stmts) = gen_stmts ~live ~tail:[return] () in
+  let (live', stmts) = gen_stmts ~depth:1 ~live ~tail:[return] () in
   !fundec.sbody.bstmts <- stmts;
   (* Initialize all live non-formal local variables. *)
   Varinfo.Set.iter
