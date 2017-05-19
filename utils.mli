@@ -26,3 +26,8 @@ val random_select: 'a list -> 'a
 (** Select a random element of the [varinfo] set.
     @raises [Not_found] if the set is empty. *)
 val random_select_from_set: Varinfo.Set.t -> Cil_types.varinfo
+
+(** Compute the set of all free variables in the expression. We define "free
+    variables" as non-global, non-parameter variables. Return the set of
+    variables in a list without repetitions. *)
+val free_vars: Cil_types.exp -> Cil_types.varinfo list

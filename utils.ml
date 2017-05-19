@@ -19,6 +19,7 @@
 (**************************************************************************)
 
 open Cil_datatype
+open Cil_types
 
 let random_select xs =
   let i = Random.int (List.length xs) in
@@ -29,3 +30,16 @@ let random_select_from_set set =
     (* FIXME: Use a smarter selection algorithm. *)
     random_select (Varinfo.Set.elements set)
   with _ -> raise Not_found
+
+class free_vars_visitor set = object
+  inherit Visitor.frama_c_inplace
+  method !vvrbl vi =
+    if not vi.vglob && not vi.vformal then
+      set := Varinfo.Set.add vi !set;
+    Cil.SkipChildren
+end
+
+let free_vars exp =
+  let set = ref Varinfo.Set.empty in
+  ignore (Visitor.visitFramacExpr (new free_vars_visitor set) exp);
+  Varinfo.Set.elements !set

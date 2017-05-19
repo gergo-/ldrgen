@@ -102,8 +102,8 @@ let gen_var_use ~num_live () =
       f ()
   in
   (* We never want to generate assignments to the function's formal
-     parameter. This is easy: We simply never put them into the live set,
-     which is where functions to assign to are selected from. *)
+     parameters. This is easy: We simply never put them into the live set,
+     which is where variables to assign to are selected from. *)
   let live =
     if vi.vformal then Varinfo.Set.empty else Varinfo.Set.singleton vi
   in
@@ -179,9 +179,8 @@ let gen_cond ~num_live () =
   let live = Varinfo.Set.union llive rlive in
   (live, Cil.mkBinOp ~loc cmp lexp rexp)
 
-let gen_assignment ~depth ~live () =
+let gen_assignment_to vi ~depth ~live () =
   let num_live = Varinfo.Set.cardinal live in
-  let vi = Utils.random_select_from_set live in
   let (new_live_vars, exp) = gen_exp ~num_live ~typ:vi.vtype () in
   let live =
     Varinfo.Set.union (Varinfo.Set.remove vi live) new_live_vars
@@ -190,10 +189,14 @@ let gen_assignment ~depth ~live () =
   let stmt = Cil.mkStmtOneInstr ~valid_sid:true assign in
   (live, stmt)
 
+let gen_assignment ~depth ~live () =
+  let vi = Utils.random_select_from_set live in
+  gen_assignment_to vi ~depth ~live ()
+
 let rec gen_stmt ~depth ~live () =
   let generators =
     if depth < Options.StmtDepth.get () then
-      [gen_assignment; gen_if_stmt]
+      [gen_assignment; gen_if_stmt; gen_while_loop]
     else
       [gen_assignment]
   in
@@ -213,6 +216,71 @@ and gen_if_stmt ~depth ~live () =
       (If (cond, Cil.mkBlock true_stmts, Cil.mkBlock false_stmts, loc))
   in
   (live, if_stmt)
+
+and gen_while_loop ~depth ~live () =
+  let depth = depth + 1 in
+  (* Save the variables that are live after the loop. They may be defined in
+     the loop body, but must nevertheless still be live before the loop. *)
+  let live_out = live in
+  (* A loop may have circular dependences that complicate things: It may
+     assign a variable on one iteration and use it during the next
+     iteration. The variable is live around the loop's back edge and live
+     into the loop. The use is typically physically before the redefinition
+     in the loop body.
+     To generate such loops, we cut the body in half and generate first the
+     first half, then the second one (each of these in the normal bottom-up
+     fashion) with the corresponding live variable sets at the given program
+     points:
+        body = <L1> first_half <L2> second_half <L3>
+        where L2 contains live_out, and L3 contains L1 and the condition's
+        free variables
+     Some variables will be used in the first half and become live in L1;
+     looping back into the second half, they may get definitions inside the
+     loop.
+     We then have to combine the results of the liveness analysis correctly.
+     Any variable in L1 is live into the loop, and is in L3. For variables
+     live into the second half that are *not* in L1:
+     - If they are in live_out, they are in L2, and the first half's
+       liveness analysis already treated them correctly.
+     - If they are not in live_out, they must have become live in the second
+       half. There are two cases for such a variable v:
+       + It is is defined in the first half. As v is not in live_out, this
+         definition must have been caused by a use that also appears in the
+         first half. If there is such a definition, it might kill our use
+         from the second half. FIXME: Check this. If we keep v live, we
+         overapproximate liveness and might generate some dead code.
+       + It is not defined in the first half. The use in the second half
+         must therefore be live before the loop body.
+     In short, we can just take the union of L1 and L2 and have a safe
+     overapproximation of the correct solution that is hopefully not so
+     coarse that we generate a lot of dead code. *)
+  let (live_body_first, stmts_first) = gen_stmts ~depth ~live ~tail:[] () in
+  (* Generate the condition. *)
+  let live = live_body_first in
+  let num_live = Varinfo.Set.cardinal live in
+  let (cond_new_live, cond) = gen_cond ~num_live () in
+  let live = Varinfo.Set.union live cond_new_live in
+  (* Try to generate an assignment to one of the variables in the condition.
+     This is meant to simulate some kind of progress towards termination of
+     the loop. *)
+  let (live, tail) =
+    let cond_vars = Utils.free_vars cond in
+    if cond_vars <> [] then
+      let vi = Utils.random_select cond_vars in
+      let (live, stmt) = gen_assignment_to vi ~depth ~live () in
+      (live, [stmt])
+    else
+      (live, [])
+  in
+  (* Now generate the second half of the body. *)
+  let (live_body_second, stmts_second) = gen_stmts ~depth ~live ~tail () in
+  (* Compute the new live set according to the above. *)
+  let live_body = Varinfo.Set.union live_body_first cond_new_live in
+  (* TODO: Remove those variables that are killed in the first half. *)
+  let live_body = Varinfo.Set.union live_body live_body_second in
+  let loop = Cil.mkWhile ~guard:cond ~body:(stmts_first @ stmts_second) in
+  let live = Varinfo.Set.union live_body live_out in
+  (live, Cil.mkStmt ~valid_sid:true (Block (Cil.mkBlock loop)))
 
 and gen_stmts ~depth ~live ~tail () =
   let rec rec_gen_stmts n ~live ~tail =
