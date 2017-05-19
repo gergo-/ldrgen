@@ -58,13 +58,20 @@ let gen_return ?typ () =
    negative) of the appropriate type. For other types, just generate a zero
    of the appropriate type. *)
 let gen_const typ =
+  let sign = if Random.bool () then 1 else -1 in
   match typ with
   | TInt (ikind, _) ->
-    let i = Random.bits () - (1 lsl 15) in
-    Cil.kinteger ~loc ikind i
+    let i = Random.bits () in
+    (* Make small-ish constants more likely. *)
+    let i = if Random.bool () then i mod (1 lsl 16) else i in
+    Cil.kinteger ~loc ikind (sign * i)
   | TFloat (fkind, _) ->
     let max = Floating_point.max_single_precision_float in
-    Cil.kfloat ~loc fkind (Random.float max -. (max /. 2.0))
+    (* Try to allow generation of small constants; without something like
+       this, almost all floating point constants would be in the 1e37-1e38
+       order of magnitude. *)
+    let bound = Utils.random_select [1e3; 1e10; max] in
+    Cil.kfloat ~loc fkind (float_of_int sign *. Random.float bound)
   | _ ->
     Cil.mkCast ~force:false ~e:(Cil.zero ~loc) ~newt:typ
 
@@ -114,7 +121,9 @@ let gen_leaf_exp ~depth ~num_live () =
     let typ = gen_type () in
     (Varinfo.Set.empty, gen_const typ)
   in
-  let f = Utils.random_select [gen_const; gen_var_use] in
+  (* Prefer variables over constants to discourage constant folding and
+     propagation, i.e., to avoid making the compiler's job too easy. *)
+  let f = Utils.random_select [gen_const; gen_var_use; gen_var_use] in
   f ~num_live ()
 
 (* Make sure that either both expressions are integers or both are
@@ -134,7 +143,8 @@ let gen_common_type_exprs expr1 expr2 =
 let rec gen_exp ~depth ~num_live () =
   let generators =
     if depth <= Options.ExprDepth.get () then
-      [gen_leaf_exp; gen_binop; gen_unop]
+      (* Prefer binary operations over all other kinds. *)
+      [gen_leaf_exp; gen_binop; gen_binop; gen_unop]
     else
       [gen_leaf_exp]
   in
@@ -148,7 +158,11 @@ and gen_binop ~depth ~num_live () =
   let lexp, rexp = gen_common_type_exprs lexp rexp in
   let binops =
     if Cil.isIntegralType (Cil.typeOf lexp) then
-      [PlusA; MinusA; Mult; Div; Mod; Shiftlt; Shiftrt; BAnd; BXor; BOr]
+      (* Prefer arithmetic over bitwise operations; prefer other bitwise
+         operations over shifts. *)
+      let shift = Utils.random_select [Shiftlt; Shiftrt] in
+      let bitwise = Utils.random_select [shift; BAnd; BXor; BOr] in
+      [PlusA; MinusA; Mult; Div; Mod; bitwise]
     else
       [PlusA; MinusA; Mult; Div]
   in
