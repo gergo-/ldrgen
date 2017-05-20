@@ -43,3 +43,26 @@ let free_vars exp =
   let set = ref Varinfo.Set.empty in
   ignore (Visitor.visitFramacExpr (new free_vars_visitor set) exp);
   Varinfo.Set.elements !set
+
+let print_command_line_args fmt () =
+  let interesting_option s =
+    Str.string_match (Str.regexp "^-ldrgen") s 0
+  in
+  let numerical_arg s =
+    try
+      ignore (int_of_string s);
+      true
+    with Failure _ -> false
+  in
+  let rec process_options os =
+    match os with
+    | o :: n :: os when interesting_option o && numerical_arg n ->
+      Format.fprintf fmt " %s %s" o n;
+      process_options os
+    | o :: os when interesting_option o ->
+      Format.fprintf fmt " %s" o;
+      process_options os
+    | _ :: os -> process_options os
+    | [] -> ()
+  in
+  process_options (Array.to_list Sys.argv)

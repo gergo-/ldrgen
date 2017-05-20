@@ -31,3 +31,7 @@ val random_select_from_set: Varinfo.Set.t -> Cil_types.varinfo
     variables" as non-global, non-parameter variables. Return the set of
     variables in a list without repetitions. *)
 val free_vars: Cil_types.exp -> Cil_types.varinfo list
+
+(** Print the ldrgen-specific arguments that were set on the command line.
+    They are printed separated by spaces, with an initial space. *)
+val print_command_line_args: Format.formatter -> unit -> unit

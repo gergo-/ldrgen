@@ -63,6 +63,13 @@ module MaxLive = Int
   end)
 
 let initialize () =
+  (* Fake some command line settings to keep Frama-C from complaining about
+     missing input files, and about problems preprocessing [/dev/null]. *)
+  Kernel.Verbose.set 0;
+  Kernel.Files.set ["/dev/null"];
+  Kernel.CppCommand.set "/bin/true";
+  Kernel.CppGnuLike.set false;
+  (* Initialize the random number generator. *)
   if Seed.is_default () then begin
     Random.self_init ();
     let s = Random.bits () in
