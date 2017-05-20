@@ -168,7 +168,37 @@ and gen_binop ~depth ~num_live () =
   in
   let op = Utils.random_select binops in
   let live = Varinfo.Set.union llive rlive in
-  (live, Cil.mkBinOp ~loc op lexp rexp)
+  (* For some operations, it's best to patch the RHS operand to avoid some
+     common problems. *)
+  let rexp' =
+    match op with
+    | Shiftlt | Shiftrt ->
+      (* Generate a modulo expression to transform this operand into the
+         legal range. It must be less than the bit size of the LHS. It must
+         also be non-negative, and the modulo operation alone does not
+         ensure this. *)
+      let unsigned_rexp =
+        Cil.mkCast ~force:false ~e:rexp ~newt:Cil.ulongLongType
+      in
+      let lhs_bitsize = Cil.bitsSizeOf (Cil.typeOf lexp) in
+      let modulus = Cil.integer ~loc (lhs_bitsize - 1) in
+      Cil.mkBinOp ~loc Mod unsigned_rexp modulus
+    | Div | Mod ->
+      let rexp = Cil.constFold true rexp in
+      begin match Cil.isInteger rexp with
+      | Some n when not (Integer.equal Integer.zero n) ->
+        (* Division by a nonzero integer. OK, keep it. *)
+        rexp
+      | _ ->
+        (* Something other than a nonzero integer. Add a small random
+           integer, just to be on the safe side; it's unlikely that this
+           produces a constant zero. *)
+        let random_num = Cil.integer ~loc (Random.int 1024 + 1) in
+        Cil.mkBinOp ~loc PlusA rexp random_num
+      end
+    | _ -> rexp
+  in
+  (live, Cil.mkBinOp ~loc op lexp rexp')
 
 and gen_unop ~depth ~num_live () =
   let depth = depth + 1 in
