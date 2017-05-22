@@ -27,11 +27,19 @@ let loc = Cil.builtinLoc
 let fundec = ref (Cil.emptyFunction "fn1")
 
 let gen_type () =
-  let types = Cil.[intType; uintType; longType; ulongType;
-                   longLongType; ulongLongType;
-                   charType; scharType; ucharType;
-                   TInt (IShort, []); TInt (IUShort, []);
-                   floatType; doubleType]
+  let open Options in
+  let types = [intType; uintType; longType; ulongType;
+               charType; scharType; ucharType;
+               TInt (IShort, []); TInt (IUShort, [])]
+  in
+  let types =
+    if Float.get () then [floatType; doubleType] @ types else types
+  in
+  let types =
+    if LongLong.get () then [longLongType; ulongLongType] @ types else types
+  in
+  let types =
+    if FloatOnly.get () then [floatType; doubleType] else types
   in
   Utils.random_select types
 
@@ -162,10 +170,11 @@ and gen_binop ~depth ~num_live () =
          operations over shifts. *)
       let shift = Utils.random_select [Shiftlt; Shiftrt] in
       let bitwise = Utils.random_select [shift; BAnd; BXor; BOr] in
-      [PlusA; MinusA; Mult; Div; Mod; bitwise]
+      [PlusA; MinusA; Mult; bitwise]
     else
-      [PlusA; MinusA; Mult; Div]
+      [PlusA; MinusA; Mult]
   in
+  let binops = if Options.DivMod.get () then [Div; Mod] @ binops else binops in
   let op = Utils.random_select binops in
   let live = Varinfo.Set.union llive rlive in
   (* For some operations, it's best to patch the RHS operand to avoid some
@@ -177,8 +186,13 @@ and gen_binop ~depth ~num_live () =
          legal range. It must be less than the bit size of the LHS. It must
          also be non-negative, and the modulo operation alone does not
          ensure this. *)
+      (* FIXME: This modulo operation is generated even if -no-div-mod is
+         set. Replace it by a safe bit masking operation. *)
       let unsigned_rexp =
-        Cil.mkCast ~force:false ~e:rexp ~newt:Cil.ulongLongType
+        let newt =
+          if Options.LongLong.get () then Cil.ulongLongType else Cil.ulongType
+        in
+        Cil.mkCast ~force:false ~e:rexp ~newt
       in
       let lhs_bitsize = Cil.bitsSizeOf (Cil.typeOf lexp) in
       let modulus = Cil.integer ~loc (lhs_bitsize - 1) in
@@ -240,7 +254,8 @@ let gen_assignment ~depth ~live () =
 let rec gen_stmt ~depth ~live () =
   let generators =
     if depth < Options.StmtDepth.get () then
-      [gen_assignment; gen_if_stmt; gen_while_loop]
+      let gens = [gen_assignment; gen_if_stmt] in
+      if Options.Loops.get () then [gen_while_loop] @ gens else gens
     else
       [gen_assignment]
   in
@@ -266,6 +281,7 @@ and gen_while_loop ~depth ~live () =
   (* Save the variables that are live after the loop. They may be defined in
      the loop body, but must nevertheless still be live before the loop. *)
   let live_out = live in
+  let n = Random.int (Options.BlockLength.get ()) + 1 in
   (* A loop may have circular dependences that complicate things: It may
      assign a variable on one iteration and use it during the next
      iteration. The variable is live around the loop's back edge and live
@@ -298,7 +314,9 @@ and gen_while_loop ~depth ~live () =
      In short, we can just take the union of L1 and L2 and have a safe
      overapproximation of the correct solution that is hopefully not so
      coarse that we generate a lot of dead code. *)
-  let (live_body_first, stmts_first) = gen_stmts ~depth ~live ~tail:[] () in
+  let (live_body_first, stmts_first) =
+    gen_stmts ~n ~depth ~live ~tail:[] ()
+  in
   (* Generate the condition. *)
   let live = live_body_first in
   let num_live = Varinfo.Set.cardinal live in
@@ -317,7 +335,10 @@ and gen_while_loop ~depth ~live () =
       (live, [])
   in
   (* Now generate the second half of the body. *)
-  let (live_body_second, stmts_second) = gen_stmts ~depth ~live ~tail () in
+  let n =
+    Options.BlockLength.get () - (List.length stmts_first + List.length tail)
+  in
+  let (live_body_second, stmts_second) = gen_stmts ~n ~depth ~live ~tail () in
   (* Compute the new live set according to the above. *)
   let live_body = Varinfo.Set.union live_body_first cond_new_live in
   (* TODO: Remove those variables that are killed in the first half. *)
@@ -326,7 +347,7 @@ and gen_while_loop ~depth ~live () =
   let live = Varinfo.Set.union live_body live_out in
   (live, Cil.mkStmt ~valid_sid:true (Block (Cil.mkBlock loop)))
 
-and gen_stmts ~depth ~live ~tail () =
+and gen_stmts ?n ~depth ~live ~tail () =
   let rec rec_gen_stmts n ~live ~tail =
     (* Stop when we have generated [n] statements or when we have no more
        live variables to define. *)
@@ -336,7 +357,12 @@ and gen_stmts ~depth ~live ~tail () =
       let (live, stmt) = gen_stmt ~depth ~live () in
       rec_gen_stmts (n-1) ~live ~tail:(stmt :: tail)
   in
-  rec_gen_stmts (5 - List.length tail) ~live ~tail
+  let n =
+    match n with
+    | Some n -> n
+    | None -> Options.BlockLength.get () - List.length tail
+  in
+  rec_gen_stmts n ~live ~tail
 
 let gen_function () =
   let typ = gen_type () in

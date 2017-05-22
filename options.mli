@@ -21,10 +21,18 @@
 include Plugin.General_services
 
 module Run: Parameter_sig.Bool
+
 module Seed: Parameter_sig.Int
 module ExprDepth: Parameter_sig.Int
 module StmtDepth: Parameter_sig.Int
+module BlockLength: Parameter_sig.Int
 module MaxLive: Parameter_sig.Int
+
+module Float: Parameter_sig.Bool
+module FloatOnly: Parameter_sig.Bool
+module LongLong: Parameter_sig.Bool
+module DivMod: Parameter_sig.Bool
+module Loops: Parameter_sig.Bool
 
 (** Initialize global state, such as the random number generator. *)
 val initialize: unit -> unit

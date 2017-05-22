@@ -54,12 +54,51 @@ module StmtDepth = Int
     let help = "set maximal statement nesting depth"
   end)
 
+module BlockLength = Int
+  (struct
+    let option_name = "-ldrgen-block-length"
+    let arg_name = "n"
+    let default = 5
+    let help = "set maximal number of instructions per block"
+  end)
+
 module MaxLive = Int
   (struct
     let option_name = "-ldrgen-max-live"
     let arg_name = "l"
     let default = 32
     let help = "set maximal number of concurrently live variables"
+  end)
+
+module Float = True
+  (struct
+    let option_name = "-ldrgen-float"
+    let help = "allow generation of floating-point arithmetic"
+  end)
+
+module FloatOnly = False
+  (struct
+    let option_name = "-ldrgen-float-only"
+    let help = "allow *only* generation of floating-point arithmetic but \
+                no integer arithmetic"
+  end)
+
+module LongLong = True
+  (struct
+    let option_name = "-ldrgen-long-long"
+    let help = "allow generation of long long arithmetic"
+  end)
+
+module DivMod = True
+  (struct
+    let option_name = "-ldrgen-div-mod"
+    let help = "allow generation of division and modulo operations"
+  end)
+
+module Loops = True
+  (struct
+    let option_name = "-ldrgen-loops"
+    let help = "allow generation of loops"
   end)
 
 let initialize () =
