@@ -174,7 +174,15 @@ and gen_binop ~depth ~num_live () =
     else
       [PlusA; MinusA; Mult]
   in
-  let binops = if Options.DivMod.get () then [Div; Mod] @ binops else binops in
+  let binops =
+    if Options.DivMod.get () then
+      if Cil.isIntegralType (Cil.typeOf lexp) then
+        [Div; Mod] @ binops
+      else
+        [Div] @ binops
+    else
+      binops
+  in
   let op = Utils.random_select binops in
   let live = Varinfo.Set.union llive rlive in
   (* For some operations, it's best to patch the RHS operand to avoid some
@@ -381,7 +389,16 @@ let gen_function () =
   f
 
 let gen_random_function ast =
-  { ast with globals = gen_function () :: ast.globals }
+  let f = gen_function () in
+  (* Set the function's list of formal arguments to its list of formal
+     arguments. This is silly, but it ensures that we generate a proper
+     prototype: If the list of formals is empty, the argument list will be
+     (void) instead of empty (). *)
+  begin match f with
+  | GFun (fdec, _) -> Cil.setFormals fdec fdec.sformals
+  | _ -> ()
+  end;
+  { ast with globals = f :: ast.globals }
 
 let gen_header ast =
   let header = Format.asprintf
