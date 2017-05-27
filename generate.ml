@@ -193,9 +193,7 @@ and gen_binop ~depth ~num_live () =
       (* Generate a modulo expression to transform this operand into the
          legal range. It must be less than the bit size of the LHS. It must
          also be non-negative, and the modulo operation alone does not
-         ensure this. *)
-      (* FIXME: This modulo operation is generated even if -no-div-mod is
-         set. Replace it by a safe bit masking operation. *)
+         ensure this. We therefore cast to unsigned. *)
       let unsigned_rexp =
         let newt =
           if Options.LongLong.get () then Cil.ulongLongType else Cil.ulongType
@@ -203,7 +201,9 @@ and gen_binop ~depth ~num_live () =
         Cil.mkCast ~force:false ~e:rexp ~newt
       in
       let lhs_bitsize = Cil.bitsSizeOf (Cil.typeOf lexp) in
-      let modulus = Cil.integer ~loc (lhs_bitsize - 1) in
+      let modulus = Cil.integer ~loc lhs_bitsize in
+      (* Note: This modulo operation is generated even if -no-div-mod is
+         set. That's OK, any compiler should replace it by a bit mask. *)
       Cil.mkBinOp ~loc Mod unsigned_rexp modulus
     | Div | Mod ->
       let rexp = Cil.constFold true rexp in
