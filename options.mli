@@ -30,6 +30,7 @@ module MaxLive: Parameter_sig.Int
 
 module Float: Parameter_sig.Bool
 module FloatOnly: Parameter_sig.Bool
+module IntOnly: Parameter_sig.Bool
 module LongLong: Parameter_sig.Bool
 module DivMod: Parameter_sig.Bool
 module Loops: Parameter_sig.Bool

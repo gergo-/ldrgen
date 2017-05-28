@@ -41,6 +41,14 @@ let gen_type () =
   let types =
     if FloatOnly.get () then [floatType; doubleType] else types
   in
+  let types =
+    (* There is a conflict between [-int-only] and [-float-only]; the former
+       wins. There's no very good way to warn about this. *)
+    if IntOnly.get () then begin
+      LongLong.set false;  (* don't want [long long] to appear in modulo *)
+      [intType; uintType]
+    end else types
+  in
   Utils.random_select types
 
 let gen_local_var ?basename typ =

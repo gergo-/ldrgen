@@ -83,6 +83,12 @@ module FloatOnly = False
                 no integer arithmetic"
   end)
 
+module IntOnly = False
+  (struct
+    let option_name = "-ldrgen-int-only"
+    let help = "allow *only* generation of int and unsigned int types"
+  end)
+
 module LongLong = True
   (struct
     let option_name = "-ldrgen-long-long"
