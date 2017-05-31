@@ -70,6 +70,14 @@ module MaxLive = Int
     let help = "set maximal number of concurrently live variables"
   end)
 
+module MaxArgs = Int
+  (struct
+    let option_name = "-ldrgen-max-args"
+    let arg_name = "a"
+    let default = 8
+    let help = "set maximal number of function arguments"
+  end)
+
 module Float = True
   (struct
     let option_name = "-ldrgen-float"

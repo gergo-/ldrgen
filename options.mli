@@ -27,6 +27,7 @@ module ExprDepth: Parameter_sig.Int
 module StmtDepth: Parameter_sig.Int
 module BlockLength: Parameter_sig.Int
 module MaxLive: Parameter_sig.Int
+module MaxArgs: Parameter_sig.Int
 
 module Float: Parameter_sig.Bool
 module FloatOnly: Parameter_sig.Bool

@@ -56,8 +56,13 @@ let gen_local_var ?basename typ =
   Cil.makeLocalVar !fundec name typ
 
 let gen_formal_var ?basename typ =
-  let name = match basename with Some n -> n | None -> "p" in
-  Cil.makeFormalVar !fundec name typ
+  (* Only actually generate a new formal if we haven't exhausted the maximum
+     number of arguments. *)
+  if List.length !fundec.sformals < Options.MaxArgs.get () then
+    let name = match basename with Some n -> n | None -> "p" in
+    Cil.makeFormalVar !fundec name typ
+  else
+    Utils.random_select !fundec.sformals
 
 let gen_var ?basename typ =
   let gen_funcs = [gen_local_var; gen_formal_var] in
