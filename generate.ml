@@ -181,9 +181,15 @@ and gen_binop ~depth ~num_live () =
     if Cil.isIntegralType (Cil.typeOf lexp) then
       (* Prefer arithmetic over bitwise operations; prefer other bitwise
          operations over shifts. *)
-      let shift = Utils.random_select [Shiftlt; Shiftrt] in
-      let bitwise = Utils.random_select [shift; BAnd; BXor; BOr] in
-      [PlusA; MinusA; Mult; bitwise]
+      let bitwise =
+        if Options.Bitwise.get () then
+          let shift = Utils.random_select [Shiftlt; Shiftrt] in
+          let bitwise = Utils.random_select [shift; BAnd; BXor; BOr] in
+          [bitwise]
+        else
+          []
+      in
+      bitwise @ [PlusA; MinusA; Mult]
     else
       [PlusA; MinusA; Mult]
   in
@@ -229,7 +235,12 @@ and gen_unop ~depth ~num_live () =
   let depth = depth + 1 in
   let live, exp = gen_exp ~depth ~num_live () in
   let typ = Cil.typeOf exp in
-  let unops = if Cil.isIntegralType typ then [Neg; BNot; LNot] else [Neg] in
+  let unops =
+    if Cil.isIntegralType typ && Options.Bitwise.get () then
+      [Neg; BNot; LNot]
+    else
+      [Neg]
+  in
   let op = Utils.random_select unops in
   (live, Cil.new_exp ~loc (UnOp (op, exp, typ)))
 

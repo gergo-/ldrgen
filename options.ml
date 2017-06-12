@@ -109,6 +109,12 @@ module DivMod = True
     let help = "allow generation of division and modulo operations"
   end)
 
+module Bitwise = True
+  (struct
+    let option_name = "-ldrgen-bitwise"
+    let help = "allow generation of bitwise operations"
+  end)
+
 module Loops = True
   (struct
     let option_name = "-ldrgen-loops"
