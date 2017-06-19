@@ -22,6 +22,13 @@ open Cil
 open Cil_types
 open Cil_datatype
 
+module LvalSet = struct
+  include LvalStructEq.Set
+
+  let add_vi vi = add (Cil.var vi)
+  let singleton_vi vi = singleton (Cil.var vi)
+end
+
 let loc = Cil.builtinLoc
 
 let fundec = ref (Cil.emptyFunction "fn1")
@@ -71,7 +78,7 @@ let gen_var ?basename ?(local_only=false) typ =
   let f = Utils.random_select gen_funcs in
   let vi = f ?basename typ in
   (* Use the [vreferenced] field to indicate whether this variable is ever
-     used. The [gen_var_use] function below sets it. It is never reset. *)
+     used. The [gen_lval_use] function below sets it. It is never reset. *)
   vi.vreferenced <- false;
   vi
 
@@ -79,16 +86,16 @@ let gen_vars n =
   let rec loop i acc =
     if i > 0 then
       let vi = gen_var ~local_only:true (gen_type ()) in
-      loop (i - 1) (Varinfo.Set.add vi acc)
+      loop (i - 1) (LvalSet.add_vi vi acc)
     else
       acc
   in
-  loop n Varinfo.Set.empty
+  loop n LvalSet.empty
 
 let gen_return ?typ () =
   let typ = match typ with Some t -> t | None -> gen_type () in
   let var = gen_local_var ~basename:"result" typ in
-  let live = Varinfo.Set.singleton var in
+  let live = LvalSet.singleton_vi var in
   (live, Cil.mkStmt ~valid_sid:true (Return (Some (Cil.evar var), loc)))
 
 (* For integer or floating-point types, generate a random number (possibly
@@ -113,7 +120,7 @@ let gen_const typ =
     Cil.mkCast ~force:false ~e:(Cil.zero ~loc) ~newt:typ
 
 (* Initialize a local variable to a constant or a parameter. *)
-let gen_local_init vi =
+let gen_local_init lval =
   let gen_param_use typ =
     if !fundec.sformals <> [] then
       let var = Utils.random_select !fundec.sformals in
@@ -124,10 +131,10 @@ let gen_local_init vi =
   in
   let generators = [gen_const; gen_param_use] in
   let f = Utils.random_select generators in
-  let assign = Set (Cil.var vi, f vi.vtype, loc) in
+  let assign = Set (lval, f (Cil.typeOfLval lval), loc) in
   Cil.mkStmtOneInstr ~valid_sid:true assign
 
-let gen_var_use ~num_live () =
+let gen_lval_use ~num_live () =
   (* Select a known local var or parameter of the function, or generate a
      new variable. *)
   let new_var () = gen_var (gen_type ()) in
@@ -149,7 +156,7 @@ let gen_var_use ~num_live () =
      parameters. This is easy: We simply never put them into the live set,
      which is where variables to assign to are selected from. *)
   let live =
-    if vi.vformal then Varinfo.Set.empty else Varinfo.Set.singleton vi
+    if vi.vformal then LvalSet.empty else LvalSet.singleton_vi vi
   in
   vi.vreferenced <- true;
   (live, Cil.evar vi)
@@ -157,11 +164,11 @@ let gen_var_use ~num_live () =
 let gen_leaf_exp ~depth ~num_live () =
   let gen_const ~num_live () =
     let typ = gen_type () in
-    (Varinfo.Set.empty, gen_const typ)
+    (LvalSet.empty, gen_const typ)
   in
   (* Prefer variables over constants to discourage constant folding and
      propagation, i.e., to avoid making the compiler's job too easy. *)
-  let f = Utils.random_select [gen_const; gen_var_use; gen_var_use] in
+  let f = Utils.random_select [gen_const; gen_lval_use; gen_lval_use] in
   f ~num_live ()
 
 (* Make sure that either both expressions are integers or both are
@@ -235,7 +242,7 @@ let gen_binop_for (llive, lexp) (rlive, rexp) =
   let lexp, rexp = gen_common_type_exprs lexp rexp in
   let op = choose_binop (Cil.typeOf lexp) in
   let rexp' = fixup_binop_rexp op lexp rexp in
-  let live = Varinfo.Set.union llive rlive in
+  let live = LvalSet.union llive rlive in
   (live, Cil.mkBinOp ~loc op lexp rexp')
 
 let rec gen_exp ~depth ~num_live () =
@@ -279,8 +286,8 @@ let gen_cond ~num_live () =
   let rec make_nonconst_exprs () =
     let llive, lexp = gen_exp ~num_live () in
     let rlive, rexp = gen_exp ~num_live () in
-    let live = Varinfo.Set.union llive rlive in
-    if Varinfo.Set.is_empty live then
+    let live = LvalSet.union llive rlive in
+    if LvalSet.is_empty live then
       make_nonconst_exprs ()
     else
       let lexp, rexp = gen_common_type_exprs lexp rexp in
@@ -291,13 +298,14 @@ let gen_cond ~num_live () =
   let cmp = Utils.random_select comparisons in
   (live, Cil.mkBinOp ~loc cmp lexp rexp)
 
-let gen_assignment_to vi ~depth ~live () =
-  let num_live = Varinfo.Set.cardinal live in
-  let (new_live_vars, exp) = gen_exp ~num_live ~typ:vi.vtype () in
+let gen_assignment_to lval ~depth ~live () =
+  let num_live = LvalSet.cardinal live in
+  let typ = Cil.typeOfLval lval in
+  let (new_live_vars, exp) = gen_exp ~num_live ~typ () in
   let live =
-    Varinfo.Set.union (Varinfo.Set.remove vi live) new_live_vars
+    LvalSet.union (LvalSet.remove lval live) new_live_vars
   in
-  let assign = Set (Cil.var vi, exp, loc) in
+  let assign = Set (lval, exp, loc) in
   let stmt = Cil.mkStmtOneInstr ~valid_sid:true assign in
   (live, stmt)
 
@@ -320,10 +328,10 @@ and gen_if_stmt ~depth ~live () =
   let depth = depth + 1 in
   let (true_live, true_stmts) = gen_stmts ~depth ~live ~tail:[] () in
   let (false_live, false_stmts) = gen_stmts ~depth ~live ~tail:[] () in
-  let body_live = Varinfo.Set.union true_live false_live in
-  let num_live = Varinfo.Set.cardinal body_live in
+  let body_live = LvalSet.union true_live false_live in
+  let num_live = LvalSet.cardinal body_live in
   let (cond_new_live, cond) = gen_cond ~num_live () in
-  let live = Varinfo.Set.union body_live cond_new_live in
+  let live = LvalSet.union body_live cond_new_live in
   let if_stmt =
     Cil.mkStmt ~valid_sid:true
       (If (cond, Cil.mkBlock true_stmts, Cil.mkBlock false_stmts, loc))
@@ -335,11 +343,11 @@ and gen_while_loop ~depth ~live () =
   (* Save the variables that are live after the loop. They may be defined in
      the loop body, but must nevertheless still be live before the loop. *)
   let live_out = live in
-  let num_live = Varinfo.Set.cardinal live in
+  let num_live = LvalSet.cardinal live in
   let (cond_new_live, cond) = gen_cond ~num_live () in
   (* Generate a set of newly used variables in the loop. Some of these will
      be loop-carried dependences. *)
-  let num_live = num_live + Varinfo.Set.cardinal cond_new_live in
+  let num_live = num_live + LvalSet.cardinal cond_new_live in
   let n =
     if num_live >= Options.MaxLive.get () then
       Random.int 2 + 1
@@ -348,8 +356,8 @@ and gen_while_loop ~depth ~live () =
   in
   let body_new_live = gen_vars n in
   let body_live_out =
-    Varinfo.Set.union live_out
-      (Varinfo.Set.union cond_new_live body_new_live)
+    LvalSet.union live_out
+      (LvalSet.union cond_new_live body_new_live)
   in
   let live = body_live_out in
   (* Try to generate an assignment to one of the variables in the condition.
@@ -370,50 +378,55 @@ and gen_while_loop ~depth ~live () =
      redefinition but no use before it, the variable is not live into the
      body. Otherwise, the variable is not used at all. Both conditions are
      checked here. *)
+  let referenced_vi = function
+    | Var vi, _ -> vi.vreferenced
+    | _ -> false
+  in
   let need_use =
-    Varinfo.Set.filter
-      (fun b -> not (Varinfo.Set.mem b body_live_in) || not b.vreferenced)
+    LvalSet.filter
+      (fun b -> not (LvalSet.mem b body_live_in) || not (referenced_vi b))
       body_new_live
   in
   let (body_live_in', stmts') =
-    if Varinfo.Set.is_empty need_use then
+    if LvalSet.is_empty need_use then
       (body_live_in, stmts)
     else begin
       (* Make an assignment using all the variables in [need_use]. *)
       let (newly_live, exp) =
-        Varinfo.Set.fold
-          (fun vi acc ->
-             gen_binop_for (Varinfo.Set.singleton vi, Cil.evar vi) acc)
+        LvalSet.fold
+          (fun lval acc ->
+             let exp = Cil.new_exp ~loc (Lval lval) in
+             gen_binop_for (LvalSet.singleton lval, exp) acc)
           need_use
-          (Varinfo.Set.empty, gen_const (gen_type ()))
+          (LvalSet.empty, gen_const (gen_type ()))
       in
-      assert (Varinfo.Set.equal newly_live need_use);
+      assert (LvalSet.equal newly_live need_use);
       (* For the LHS choose a currently live variable. If there is none,
          things get a bit more annoying. *)
-      let (stmts, vi) =
-        if Varinfo.Set.is_empty body_live_in then begin
+      let (stmts, lval) =
+        if LvalSet.is_empty body_live_in then begin
           (* The only way everything could have been killed is through an
              assignment to some variable. Pick that variable and remove the
              assignment. *)
           match stmts with
-          | { skind = Instr (Set ((Var vi, NoOffset), _exp, _)) } :: stmts ->
-            (stmts, vi)
+          | { skind = Instr (Set (lval, _exp, _)) } :: stmts ->
+            (stmts, lval)
           | _ -> assert false
         end else
           (stmts, Utils.random_select_from_set body_live_in)
       in
       let body_live_in' =
-        Varinfo.Set.union (Varinfo.Set.remove vi body_live_in) newly_live
+        LvalSet.union (LvalSet.remove lval body_live_in) newly_live
       in
-      let assign = Set (Cil.var vi, exp, loc) in
+      let assign = Set (lval, exp, loc) in
       let assign_stmt = Cil.mkStmtOneInstr ~valid_sid:true assign in
       (body_live_in', assign_stmt :: stmts)
     end
   in
   let loop = Cil.mkWhile ~guard:cond ~body:stmts' in
   let live =
-    Varinfo.Set.union
-      (Varinfo.Set.union cond_new_live body_live_in')
+    LvalSet.union
+      (LvalSet.union cond_new_live body_live_in')
       live_out
   in
   (live, Cil.mkStmt ~valid_sid:true (Block (Cil.mkBlock loop)))
@@ -422,7 +435,7 @@ and gen_stmts ?n ~depth ~live ~tail () =
   let rec rec_gen_stmts n ~live ~tail =
     (* Stop when we have generated [n] statements or when we have no more
        live variables to define. *)
-    if n < 1 || Varinfo.Set.is_empty live then
+    if n < 1 || LvalSet.is_empty live then
       (live, tail)
     else
       let (live, stmt) = gen_stmt ~depth ~live () in
@@ -442,9 +455,13 @@ let gen_function () =
   let (live', stmts) = gen_stmts ~depth:1 ~live ~tail:[return] () in
   !fundec.sbody.bstmts <- stmts;
   (* Initialize all live non-formal local variables. *)
-  Varinfo.Set.iter
+  let glob_or_formal_vi = function
+    | Var vi, _ -> vi.vglob || vi.vformal
+    | _ -> false
+  in
+  LvalSet.iter
     (fun vi ->
-       if not vi.vglob && not vi.vformal then
+       if not (glob_or_formal_vi vi) then
          let init = gen_local_init vi in
          !fundec.sbody.bstmts <- init :: !fundec.sbody.bstmts)
     live';

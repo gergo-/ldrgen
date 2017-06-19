@@ -23,14 +23,14 @@ open Cil_datatype
 (** Select a random member of the list. *)
 val random_select: 'a list -> 'a
 
-(** Select a random element of the [varinfo] set.
+(** Select a random element of the [lval] set.
     @raises [Not_found] if the set is empty. *)
-val random_select_from_set: Varinfo.Set.t -> Cil_types.varinfo
+val random_select_from_set: LvalStructEq.Set.t -> Cil_types.lval
 
 (** Compute the set of all free variables in the expression. We define "free
     variables" as non-global, non-parameter variables. Return the set of
-    variables in a list without repetitions. *)
-val free_vars: Cil_types.exp -> Cil_types.varinfo list
+    variables in a list of lvalues without repetitions. *)
+val free_vars: Cil_types.exp -> Cil_types.lval list
 
 (** Print the ldrgen-specific arguments that were set on the command line.
     They are printed separated by spaces, with an initial space. *)

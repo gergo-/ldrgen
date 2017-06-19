@@ -28,21 +28,21 @@ let random_select xs =
 let random_select_from_set set =
   try
     (* FIXME: Use a smarter selection algorithm. *)
-    random_select (Varinfo.Set.elements set)
+    random_select (LvalStructEq.Set.elements set)
   with _ -> raise Not_found
 
 class free_vars_visitor set = object
   inherit Visitor.frama_c_inplace
   method !vvrbl vi =
     if not vi.vglob && not vi.vformal then
-      set := Varinfo.Set.add vi !set;
+      set := LvalStructEq.Set.add (Cil.var vi) !set;
     Cil.SkipChildren
 end
 
 let free_vars exp =
-  let set = ref Varinfo.Set.empty in
+  let set = ref LvalStructEq.Set.empty in
   ignore (Visitor.visitFramacExpr (new free_vars_visitor set) exp);
-  Varinfo.Set.elements !set
+  LvalStructEq.Set.elements !set
 
 let print_command_line_args fmt () =
   let interesting_option s =
