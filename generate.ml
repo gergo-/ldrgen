@@ -64,8 +64,10 @@ let gen_formal_var ?basename typ =
   else
     Utils.random_select !fundec.sformals
 
-let gen_var ?basename typ =
-  let gen_funcs = [gen_local_var; gen_formal_var] in
+let gen_var ?basename ?(local_only=false) typ =
+  let gen_funcs =
+    if local_only then [gen_local_var] else [gen_local_var; gen_formal_var]
+  in
   let f = Utils.random_select gen_funcs in
   let vi = f ?basename typ in
   (* Use the [vreferenced] field to indicate whether this variable is ever
@@ -76,7 +78,7 @@ let gen_var ?basename typ =
 let gen_vars n =
   let rec loop i acc =
     if i > 0 then
-      let vi = gen_var (gen_type ()) in
+      let vi = gen_var ~local_only:true (gen_type ()) in
       loop (i - 1) (Varinfo.Set.add vi acc)
     else
       acc
