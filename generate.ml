@@ -67,7 +67,21 @@ let gen_formal_var ?basename typ =
 let gen_var ?basename typ =
   let gen_funcs = [gen_local_var; gen_formal_var] in
   let f = Utils.random_select gen_funcs in
-  f ?basename typ
+  let vi = f ?basename typ in
+  (* Use the [vreferenced] field to indicate whether this variable is ever
+     used. The [gen_var_use] function below sets it. It is never reset. *)
+  vi.vreferenced <- false;
+  vi
+
+let gen_vars n =
+  let rec loop i acc =
+    if i > 0 then
+      let vi = gen_var (gen_type ()) in
+      loop (i - 1) (Varinfo.Set.add vi acc)
+    else
+      acc
+  in
+  loop n Varinfo.Set.empty
 
 let gen_return ?typ () =
   let typ = match typ with Some t -> t | None -> gen_type () in
@@ -135,6 +149,7 @@ let gen_var_use ~num_live () =
   let live =
     if vi.vformal then Varinfo.Set.empty else Varinfo.Set.singleton vi
   in
+  vi.vreferenced <- true;
   (live, Cil.evar vi)
 
 let gen_leaf_exp ~depth ~num_live () =
@@ -161,24 +176,9 @@ let gen_common_type_exprs expr1 expr2 =
     let cast_to_common_typ e = Cil.mkCast ~force:false ~e ~newt:typ in
     (cast_to_common_typ expr1, cast_to_common_typ expr2)
 
-let rec gen_exp ~depth ~num_live () =
-  let generators =
-    if depth <= Options.ExprDepth.get () then
-      (* Prefer binary operations over all other kinds. *)
-      [gen_leaf_exp; gen_binop; gen_binop; gen_unop]
-    else
-      [gen_leaf_exp]
-  in
-  let f = Utils.random_select generators in
-  f ~depth ~num_live ()
-
-and gen_binop ~depth ~num_live () =
-  let depth = depth + 1 in
-  let llive, lexp = gen_exp ~depth ~num_live () in
-  let rlive, rexp = gen_exp ~depth ~num_live () in
-  let lexp, rexp = gen_common_type_exprs lexp rexp in
+let choose_binop typ =
   let binops =
-    if Cil.isIntegralType (Cil.typeOf lexp) then
+    if Cil.isIntegralType typ then
       (* Prefer arithmetic over bitwise operations; prefer other bitwise
          operations over shifts. *)
       let bitwise =
@@ -195,41 +195,63 @@ and gen_binop ~depth ~num_live () =
   in
   let binops =
     if Options.DivMod.get () then
-      if Cil.isIntegralType (Cil.typeOf lexp) then
+      if Cil.isIntegralType typ then
         [Div; Mod] @ binops
       else
         [Div] @ binops
     else
       binops
   in
-  let op = Utils.random_select binops in
+  Utils.random_select binops
+
+(* For some operations, it's best to patch the RHS operand to avoid some
+   common problems. *)
+let fixup_binop_rexp op lexp rexp =
+  match op with
+  | Shiftlt | Shiftrt ->
+    (* Generate a bit mask expression to transform this operand into the
+       legal range. *)
+    let lhs_bitsize = Cil.bitsSizeOf (Cil.typeOf lexp) in
+    let mask = Cil.integer ~loc (lhs_bitsize - 1) in
+    Cil.mkBinOp ~loc BAnd rexp mask
+  | Div | Mod ->
+    let rexp = Cil.constFold true rexp in
+    begin match Cil.isInteger rexp with
+    | Some n when not (Integer.equal Integer.zero n) ->
+      (* Division by a nonzero integer. OK, keep it. *)
+      rexp
+    | _ ->
+      (* Something other than a nonzero integer. Add a small random
+         integer, just to be on the safe side; it's unlikely that this
+         produces a constant zero. *)
+      let random_num = Cil.integer ~loc (Random.int 1024 + 1) in
+      Cil.mkBinOp ~loc PlusA rexp random_num
+    end
+  | _ -> rexp
+
+let gen_binop_for (llive, lexp) (rlive, rexp) =
+  let lexp, rexp = gen_common_type_exprs lexp rexp in
+  let op = choose_binop (Cil.typeOf lexp) in
+  let rexp' = fixup_binop_rexp op lexp rexp in
   let live = Varinfo.Set.union llive rlive in
-  (* For some operations, it's best to patch the RHS operand to avoid some
-     common problems. *)
-  let rexp' =
-    match op with
-    | Shiftlt | Shiftrt ->
-      (* Generate a bit mask expression to transform this operand into the
-         legal range. *)
-      let lhs_bitsize = Cil.bitsSizeOf (Cil.typeOf lexp) in
-      let mask = Cil.integer ~loc (lhs_bitsize - 1) in
-      Cil.mkBinOp ~loc BAnd rexp mask
-    | Div | Mod ->
-      let rexp = Cil.constFold true rexp in
-      begin match Cil.isInteger rexp with
-      | Some n when not (Integer.equal Integer.zero n) ->
-        (* Division by a nonzero integer. OK, keep it. *)
-        rexp
-      | _ ->
-        (* Something other than a nonzero integer. Add a small random
-           integer, just to be on the safe side; it's unlikely that this
-           produces a constant zero. *)
-        let random_num = Cil.integer ~loc (Random.int 1024 + 1) in
-        Cil.mkBinOp ~loc PlusA rexp random_num
-      end
-    | _ -> rexp
-  in
   (live, Cil.mkBinOp ~loc op lexp rexp')
+
+let rec gen_exp ~depth ~num_live () =
+  let generators =
+    if depth <= Options.ExprDepth.get () then
+      (* Prefer binary operations over all other kinds. *)
+      [gen_leaf_exp; gen_binop; gen_binop; gen_unop]
+    else
+      [gen_leaf_exp]
+  in
+  let f = Utils.random_select generators in
+  f ~depth ~num_live ()
+
+and gen_binop ~depth ~num_live () =
+  let depth = depth + 1 in
+  let llive, lexp = gen_exp ~depth ~num_live () in
+  let rlive, rexp = gen_exp ~depth ~num_live () in
+  gen_binop_for (llive, lexp) (rlive, rexp)
 
 and gen_unop ~depth ~num_live () =
   let depth = depth + 1 in
@@ -251,12 +273,20 @@ let gen_exp ~num_live ?typ () =
   | None -> (live, exp)
 
 let gen_cond ~num_live () =
-  let llive, lexp = gen_exp ~num_live () in
-  let rlive, rexp = gen_exp ~num_live () in
-  let lexp, rexp = gen_common_type_exprs lexp rexp in
+  (* Make sure a condition always uses at least one variable. *)
+  let rec make_nonconst_exprs () =
+    let llive, lexp = gen_exp ~num_live () in
+    let rlive, rexp = gen_exp ~num_live () in
+    let live = Varinfo.Set.union llive rlive in
+    if Varinfo.Set.is_empty live then
+      make_nonconst_exprs ()
+    else
+      let lexp, rexp = gen_common_type_exprs lexp rexp in
+      (live, lexp, rexp)
+  in
+  let live, lexp, rexp = make_nonconst_exprs () in
   let comparisons = [Lt; Gt; Le; Ge; Eq; Ne] in
   let cmp = Utils.random_select comparisons in
-  let live = Varinfo.Set.union llive rlive in
   (live, Cil.mkBinOp ~loc cmp lexp rexp)
 
 let gen_assignment_to vi ~depth ~live () =
@@ -303,47 +333,23 @@ and gen_while_loop ~depth ~live () =
   (* Save the variables that are live after the loop. They may be defined in
      the loop body, but must nevertheless still be live before the loop. *)
   let live_out = live in
-  let n = Random.int (Options.BlockLength.get ()) + 1 in
-  (* A loop may have circular dependences that complicate things: It may
-     assign a variable on one iteration and use it during the next
-     iteration. The variable is live around the loop's back edge and live
-     into the loop. The use is typically physically before the redefinition
-     in the loop body.
-     To generate such loops, we cut the body in half and generate first the
-     first half, then the second one (each of these in the normal bottom-up
-     fashion) with the corresponding live variable sets at the given program
-     points:
-        body = <L1> first_half <L2> second_half <L3>
-        where L2 contains live_out, and L3 contains L1 and the condition's
-        free variables
-     Some variables will be used in the first half and become live in L1;
-     looping back into the second half, they may get definitions inside the
-     loop.
-     We then have to combine the results of the liveness analysis correctly.
-     Any variable in L1 is live into the loop, and is in L3. For variables
-     live into the second half that are *not* in L1:
-     - If they are in live_out, they are in L2, and the first half's
-       liveness analysis already treated them correctly.
-     - If they are not in live_out, they must have become live in the second
-       half. There are two cases for such a variable v:
-       + It is is defined in the first half. As v is not in live_out, this
-         definition must have been caused by a use that also appears in the
-         first half. If there is such a definition, it might kill our use
-         from the second half. FIXME: Check this. If we keep v live, we
-         overapproximate liveness and might generate some dead code.
-       + It is not defined in the first half. The use in the second half
-         must therefore be live before the loop body.
-     In short, we can just take the union of L1 and L2 and have a safe
-     overapproximation of the correct solution that is hopefully not so
-     coarse that we generate a lot of dead code. *)
-  let (live_body_first, stmts_first) =
-    gen_stmts ~n ~depth ~live ~tail:[] ()
-  in
-  (* Generate the condition. *)
-  let live = live_body_first in
   let num_live = Varinfo.Set.cardinal live in
   let (cond_new_live, cond) = gen_cond ~num_live () in
-  let live = Varinfo.Set.union live cond_new_live in
+  (* Generate a set of newly used variables in the loop. Some of these will
+     be loop-carried dependences. *)
+  let num_live = num_live + Varinfo.Set.cardinal cond_new_live in
+  let n =
+    if num_live >= Options.MaxLive.get () then
+      Random.int 2 + 1
+    else
+      Random.int ((Options.MaxLive.get () + 1 - num_live) / 2) + 1
+  in
+  let body_new_live = gen_vars n in
+  let body_live_out =
+    Varinfo.Set.union live_out
+      (Varinfo.Set.union cond_new_live body_new_live)
+  in
+  let live = body_live_out in
   (* Try to generate an assignment to one of the variables in the condition.
      This is meant to simulate some kind of progress towards termination of
      the loop. *)
@@ -356,17 +362,54 @@ and gen_while_loop ~depth ~live () =
     else
       (live, [])
   in
-  (* Now generate the second half of the body. *)
-  let n =
-    Options.BlockLength.get () - (List.length stmts_first + List.length tail)
+  let (body_live_in, stmts) = gen_stmts ~depth ~live ~tail () in
+  (* Now we must ensure that every variable in [body_new_live] does actually
+     have a use before a possible redefinition in the loop. If there is a
+     redefinition but no use before it, the variable is not live into the
+     body. Otherwise, the variable is not used at all. Both conditions are
+     checked here. *)
+  let need_use =
+    Varinfo.Set.filter
+      (fun b -> not (Varinfo.Set.mem b body_live_in) || not b.vreferenced)
+      body_new_live
   in
-  let (live_body_second, stmts_second) = gen_stmts ~n ~depth ~live ~tail () in
-  (* Compute the new live set according to the above. *)
-  let live_body = Varinfo.Set.union live_body_first cond_new_live in
-  (* TODO: Remove those variables that are killed in the first half. *)
-  let live_body = Varinfo.Set.union live_body live_body_second in
-  let loop = Cil.mkWhile ~guard:cond ~body:(stmts_first @ stmts_second) in
-  let live = Varinfo.Set.union live_body live_out in
+  let (body_live_in', stmts') =
+    if Varinfo.Set.is_empty need_use then
+      (body_live_in, stmts)
+    else begin
+      (* Make an assignment using all the variables in [need_use]. *)
+      let (newly_live, exp) =
+        Varinfo.Set.fold
+          (fun vi acc ->
+             gen_binop_for (Varinfo.Set.singleton vi, Cil.evar vi) acc)
+          need_use
+          (Varinfo.Set.empty, gen_const (gen_type ()))
+      in
+      assert (Varinfo.Set.equal newly_live need_use);
+      (* For the LHS choose a currently live variable. If there is none,
+         things get a bit more annoying. *)
+      let (stmts, vi) =
+        if Varinfo.Set.is_empty body_live_in then begin
+          (* The only way everything could have been killed is through an
+             assignment to some variable. Pick that variable and remove the
+             assignment. *)
+          match stmts with
+          | { skind = Instr (Set ((Var vi, NoOffset), _exp, _)) } :: stmts ->
+            (stmts, vi)
+          | _ -> assert false
+        end else
+          (stmts, Utils.random_select_from_set body_live_in)
+      in
+      let body_live_in' =
+        Varinfo.Set.union (Varinfo.Set.remove vi body_live_in) newly_live
+      in
+      let assign = Set (Cil.var vi, exp, loc) in
+      let assign_stmt = Cil.mkStmtOneInstr ~valid_sid:true assign in
+      (body_live_in', assign_stmt :: stmts)
+    end
+  in
+  let loop = Cil.mkWhile ~guard:cond ~body:stmts' in
+  let live = Varinfo.Set.union body_live_in' live_out in
   (live, Cil.mkStmt ~valid_sid:true (Block (Cil.mkBlock loop)))
 
 and gen_stmts ?n ~depth ~live ~tail () =
