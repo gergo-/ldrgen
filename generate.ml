@@ -411,7 +411,11 @@ and gen_while_loop ~depth ~live () =
     end
   in
   let loop = Cil.mkWhile ~guard:cond ~body:stmts' in
-  let live = Varinfo.Set.union body_live_in' live_out in
+  let live =
+    Varinfo.Set.union
+      (Varinfo.Set.union cond_new_live body_live_in')
+      live_out
+  in
   (live, Cil.mkStmt ~valid_sid:true (Block (Cil.mkBlock loop)))
 
 and gen_stmts ?n ~depth ~live ~tail () =
