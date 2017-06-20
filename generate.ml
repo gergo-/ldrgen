@@ -39,6 +39,18 @@ let fundec = ref (Cil.emptyFunction "fn1")
    corresponding lvalue in this set is dereferenced appropriately. *)
 let param_lvals = ref (LvalSet.empty)
 
+(* Global variable for modeling the sizes of arrays. *)
+let array_size_var = ref None
+
+let array_size () =
+  match !array_size_var with
+  | Some vi -> Cil.evar vi
+  | None ->
+    let vi = Cil.makeGlobalVar "N" Cil.uintType in
+    vi.vstorage <- Extern;
+    array_size_var := Some vi;
+    Cil.evar vi
+
 let gen_type () =
   let open Options in
   let types = [intType; uintType; longType; ulongType;
@@ -356,7 +368,7 @@ let rec gen_stmt ~depth ~live () =
   let generators =
     if depth < Options.StmtDepth.get () then
       let gens = [gen_assignment; gen_if_stmt] in
-      if Options.Loops.get () then [gen_while_loop] @ gens else gens
+      if Options.Loops.get () then [gen_loop] @ gens else gens
     else
       [gen_assignment]
   in
@@ -376,6 +388,82 @@ and gen_if_stmt ~depth ~live () =
       (If (cond, Cil.mkBlock true_stmts, Cil.mkBlock false_stmts, loc))
   in
   (live, if_stmt)
+
+and gen_loop ~depth ~live () =
+  (* We can only generate a for loop if we can generate a corresponding
+     array argument. *)
+  let generators =
+    if List.length !fundec.sformals < Options.MaxArgs.get () then
+      [gen_for_loop; gen_while_loop]
+    else
+      [gen_while_loop]
+  in
+  let generator = Utils.random_select generators in
+  generator ~depth ~live ()
+
+and gen_for_loop ~depth ~live () =
+  let depth = depth + 1 in
+  (* loop counter *)
+  let i = gen_local_var ~basename:"i" Cil.uintType in
+  (* array parameter *)
+  let elem_typ = gen_type () in
+  let ptr_typ = TPtr (elem_typ, []) in
+  let a = gen_formal_var ~basename:"arr" ptr_typ in
+  (* Hack: [gen_formal_var] put [a] into the set of usable formals, but we
+     only ever want to use this array in the context of this loop, so remove
+     it from there. *)
+  param_lvals := LvalSet.remove (Var a, NoOffset) !param_lvals;
+  (* Result of the loop computation. *)
+  let r = Utils.random_select_from_set live in
+  let live' = LvalSet.remove r live in
+  let num_live = LvalSet.cardinal live' in
+  (* The last statement of the block is an assignment to this result
+     variable, combining its old value with some new, nontrivial expression
+     that will be made to use a reference to [a[i]]. *)
+  let rec gen_nonconst_rexp () =
+    let (rlive, rexp) = gen_exp ~num_live ~typ:(Cil.typeOfLval r) () in
+    if LvalSet.is_empty rlive then
+      gen_nonconst_rexp ()
+    else
+      (rlive, rexp)
+  in
+  let (rlive, rexp) = gen_nonconst_rexp () in
+  let (llive, lexp) = (LvalSet.empty, Cil.new_exp ~loc (Lval r)) in
+  let assign_live, assign_exp = gen_binop_for (llive, lexp) (rlive, rexp) in
+  let assign_stmt =
+    Cil.mkStmtOneInstr ~valid_sid:true (Set (r, assign_exp, loc))
+  in
+  let use_var = Utils.random_select (Utils.free_vars rexp) in
+  let use_stmt =
+    let off = Index (Cil.evar i, NoOffset) in
+    let array_elem = (Var a, off) in
+    let array_elem_exp = Cil.new_exp ~loc (Lval array_elem) in
+    Cil.mkStmtOneInstr ~valid_sid:true (Set (use_var, array_elem_exp, loc))
+  in
+  (* Generate a list of statements followed by these two assignments. *)
+  let use_live = LvalSet.remove r assign_live in
+  let (body_live, body) =
+    gen_stmts ~depth ~live:use_live ~tail:[use_stmt; assign_stmt] ()
+  in
+  (* Finally, make a loop for i from 0 to N over this body. *)
+  let for_stmt_list =
+    Cil.mkForIncr
+      ~iter:i
+      ~first:(Cil.mkCast ~force:true ~e:(Cil.zero ~loc) ~newt:Cil.uintType)
+      ~stopat:(array_size ())
+      ~incr:(Cil.one ~loc)
+      ~body
+  in
+  let for_stmt =
+    Cil.mkStmt ~valid_sid:true (Block (Cil.mkBlock for_stmt_list))
+  in
+  (* Now, the variables live before the loop are the variables live into the
+     body, as well as [r], since it must be initialized. We assume that for
+     loops always iterate at least once, so we don't need to add in
+     variables live after the loop. Neither do we add the array or the index
+     variable. *)
+  let live = LvalSet.add r body_live in
+  (live, for_stmt)
 
 and gen_while_loop ~depth ~live () =
   let depth = depth + 1 in
@@ -517,7 +605,13 @@ let gen_random_function ast =
   | GFun (fdec, _) -> Cil.setFormals fdec fdec.sformals
   | _ -> ()
   end;
-  { ast with globals = f :: ast.globals }
+  let global_array_size_var =
+    match !array_size_var with
+    | Some vi -> [GVarDecl (vi, loc)]
+    | None -> []
+  in
+  let globals = global_array_size_var @ f :: ast.globals in
+  { ast with globals }
 
 let gen_header ast =
   let header = Format.asprintf
