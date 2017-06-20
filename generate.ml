@@ -31,7 +31,13 @@ end
 
 let loc = Cil.builtinLoc
 
+(* The function we're building. *)
 let fundec = ref (Cil.emptyFunction "fn1")
+
+(* "Parameter lvalues" are lvalues that may be used in expressions and are
+   based on function parameters. If the parameter is a pointer, the
+   corresponding lvalue in this set is dereferenced appropriately. *)
+let param_lvals = ref (LvalSet.empty)
 
 let gen_type () =
   let open Options in
@@ -65,10 +71,16 @@ let gen_local_var ?basename typ =
 let gen_formal_var ?basename typ =
   (* Only actually generate a new formal if we haven't exhausted the maximum
      number of arguments. *)
-  if List.length !fundec.sformals < Options.MaxArgs.get () then
+  if List.length !fundec.sformals < Options.MaxArgs.get () then begin
     let name = match basename with Some n -> n | None -> "p" in
-    Cil.makeFormalVar !fundec name typ
-  else
+    let vi = Cil.makeFormalVar !fundec name typ in
+    if Cil.isPointerType typ then
+      let mem = (Mem (Cil.evar vi), NoOffset) in
+      param_lvals := LvalSet.add mem !param_lvals
+    else
+      param_lvals := LvalSet.add_vi vi !param_lvals;
+    vi
+  end else
     Utils.random_select !fundec.sformals
 
 let gen_var ?basename ?(local_only=false) typ =
@@ -122,9 +134,10 @@ let gen_const typ =
 (* Initialize a local variable to a constant or a parameter. *)
 let gen_local_init lval =
   let gen_param_use typ =
-    if !fundec.sformals <> [] then
-      let var = Utils.random_select !fundec.sformals in
-      Cil.mkCast ~force:false ~e:(Cil.evar var) ~newt:typ
+    if not (LvalSet.is_empty !param_lvals) then
+      let lval = Utils.random_select_from_set !param_lvals in
+      let e = Cil.new_exp ~loc (Lval lval) in
+      Cil.mkCast ~force:false ~e ~newt:typ
     else
       (* OK, fall back to constants. *)
       gen_const typ
@@ -134,32 +147,58 @@ let gen_local_init lval =
   let assign = Set (lval, f (Cil.typeOfLval lval), loc) in
   Cil.mkStmtOneInstr ~valid_sid:true assign
 
+let new_lval () =
+  if List.length !fundec.sformals < Options.MaxArgs.get () &&
+     Random.float 1.0 < 0.1
+  then
+    (* Make a parameter of pointer type. *)
+    let ptr_typ = TPtr (gen_type (), []) in
+    let vi = gen_formal_var ptr_typ in
+    (Mem (Cil.evar vi), NoOffset)
+  else
+    (* Make a plain variable. *)
+    let vi = gen_var (gen_type ()) in
+    vi.vreferenced <- true;
+    (* This may be a previously known parameter variable of pointer type. *)
+    if Cil.isPointerType vi.vtype then
+      (Mem (Cil.evar vi), NoOffset)
+    else
+      (Var vi, NoOffset)
+
 let gen_lval_use ~num_live () =
   (* Select a known local var or parameter of the function, or generate a
      new variable. *)
-  let new_var () = gen_var (gen_type ()) in
   let select_or_new vars =
-    if vars <> [] then Utils.random_select vars else new_var ()
+    if vars <> [] then begin
+      let vi = Utils.random_select vars in
+      vi.vreferenced <- true;
+      (Var vi, NoOffset)
+    end else
+      new_lval ()
   in
-  let use_param () = select_or_new !fundec.sformals in
+  let use_param () =
+    if LvalSet.is_empty !param_lvals then
+      new_lval ()
+    else
+      Utils.random_select_from_set !param_lvals
+  in
   let use_local () = select_or_new !fundec.slocals in
   (* Try to generate new variables if we don't have many live ones; pick
      existing ones if enough are live. *)
-  let vi =
+  let lval =
     if Random.int (Options.MaxLive.get ()) > num_live then
-      new_var ()
+      new_lval ()
     else
       let f = Utils.random_select [use_param; use_local] in
       f ()
   in
   (* We never want to generate assignments to the function's formal
      parameters. This is easy: We simply never put them into the live set,
-     which is where variables to assign to are selected from. *)
-  let live =
-    if vi.vformal then LvalSet.empty else LvalSet.singleton_vi vi
-  in
-  vi.vreferenced <- true;
-  (live, Cil.evar vi)
+     which is where variables to assign to are selected from.
+     [Utils.free_vars] only selects locals, not formals. *)
+  let exp = Cil.new_exp ~loc (Lval lval) in
+  let live = LvalSet.of_list (Utils.free_vars exp) in
+  (live, exp)
 
 let gen_leaf_exp ~depth ~num_live () =
   let gen_const ~num_live () =
