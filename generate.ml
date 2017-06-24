@@ -402,7 +402,6 @@ and gen_loop ~depth ~live () =
   generator ~depth ~live ()
 
 and gen_for_loop ~depth ~live () =
-  let depth = depth + 1 in
   (* loop counter *)
   let i = gen_local_var ~basename:"i" Cil.uintType in
   (* array parameter *)
@@ -413,6 +412,12 @@ and gen_for_loop ~depth ~live () =
      only ever want to use this array in the context of this loop, so remove
      it from there. *)
   param_lvals := LvalSet.remove (Var a, NoOffset) !param_lvals;
+  (* The loop body will be of the form
+        x = arr[i];
+        r = r op exp(x);
+     for some random expression [exp] and a random binary operator [op].
+     That is, we map [exp] over the array, then reduce (fold) with [op], and
+     put the result in [r]. *)
   (* Result of the loop computation. *)
   let r = Utils.random_select_from_set live in
   let live' = LvalSet.remove r live in
@@ -422,7 +427,7 @@ and gen_for_loop ~depth ~live () =
      that will be made to use a reference to [a[i]]. *)
   let rec gen_nonconst_rexp () =
     let (rlive, rexp) = gen_exp ~num_live ~typ:(Cil.typeOfLval r) () in
-    if LvalSet.is_empty rlive then
+    if Utils.free_vars rexp = [] then
       gen_nonconst_rexp ()
     else
       (rlive, rexp)
@@ -440,11 +445,9 @@ and gen_for_loop ~depth ~live () =
     let array_elem_exp = Cil.new_exp ~loc (Lval array_elem) in
     Cil.mkStmtOneInstr ~valid_sid:true (Set (use_var, array_elem_exp, loc))
   in
-  (* Generate a list of statements followed by these two assignments. *)
+  (* The body consists of these two assignments. *)
   let use_live = LvalSet.remove r assign_live in
-  let (body_live, body) =
-    gen_stmts ~depth ~live:use_live ~tail:[use_stmt; assign_stmt] ()
-  in
+  let (body_live, body) = (use_live, [use_stmt; assign_stmt]) in
   (* Finally, make a loop for i from 0 to N over this body. *)
   let for_stmt_list =
     Cil.mkForIncr
