@@ -461,11 +461,9 @@ and gen_for_loop ~depth ~live () =
     Cil.mkStmt ~valid_sid:true (Block (Cil.mkBlock for_stmt_list))
   in
   (* Now, the variables live before the loop are the variables live into the
-     body, as well as [r], since it must be initialized. We assume that for
-     loops always iterate at least once, so we don't need to add in
-     variables live after the loop. Neither do we add the array or the index
-     variable. *)
-  let live = LvalSet.add r body_live in
+     body, as well as [r], since it must be initialized. And, of course,
+     whatever is live after the body. *)
+  let live = LvalSet.union (LvalSet.add r body_live) live' in
   (live, for_stmt)
 
 and gen_while_loop ~depth ~live () =
