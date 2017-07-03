@@ -121,6 +121,18 @@ module Loops = True
     let help = "allow generation of loops"
   end)
 
+module WhileLoops = True
+  (struct
+    let option_name = "-ldrgen-while-loops"
+    let help = "allow generation of while loops"
+  end)
+
+module ForLoops = True
+  (struct
+    let option_name = "-ldrgen-for-loops"
+    let help = "allow generation of for loops"
+  end)
+
 let initialize () =
   (* Fake some command line settings to keep Frama-C from complaining about
      missing input files, and about problems preprocessing [/dev/null]. *)

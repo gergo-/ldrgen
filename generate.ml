@@ -390,13 +390,23 @@ and gen_if_stmt ~depth ~live () =
   (live, if_stmt)
 
 and gen_loop ~depth ~live () =
+  let while_loop =
+    if Options.WhileLoops.get () then [gen_while_loop] else []
+  in
   (* We can only generate a for loop if we can generate a corresponding
      array argument. *)
   let generators =
-    if List.length !fundec.sformals < Options.MaxArgs.get () then
-      [gen_for_loop; gen_while_loop]
+    if Options.ForLoops.get () &&
+       List.length !fundec.sformals < Options.MaxArgs.get () then
+      [gen_for_loop] @ while_loop
     else
-      [gen_while_loop]
+      while_loop
+  in
+  let generators =
+    (* We may have found a combination of command line arguments and program
+       state that doesn't allow us to generate a loop after all. In that
+       case, try some other statement. *)
+    if generators = [] then [gen_stmt] else generators
   in
   let generator = Utils.random_select generators in
   generator ~depth ~live ()

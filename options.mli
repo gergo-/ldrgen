@@ -36,6 +36,8 @@ module LongLong: Parameter_sig.Bool
 module DivMod: Parameter_sig.Bool
 module Bitwise: Parameter_sig.Bool
 module Loops: Parameter_sig.Bool
+module WhileLoops: Parameter_sig.Bool
+module ForLoops: Parameter_sig.Bool
 
 (** Initialize global state, such as the random number generator. *)
 val initialize: unit -> unit
