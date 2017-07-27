@@ -16,6 +16,10 @@ programs.
 See [Csmith](https://github.com/csmith-project/csmith) for another C program
 generator that is in many ways more sophisticated than this.
 
+A paper describing ldrgen has been accepted for presentation at the LOPSTR
+2017 conference. A preprint is at
+[lopstr2017_ldrgen_preprint.pdf](lopstr2017_ldrgen_preprint.pdf).
+
 
 ## Examples
 
