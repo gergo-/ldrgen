@@ -57,14 +57,17 @@ let gen_type () =
                charType; scharType; ucharType;
                TInt (IShort, []); TInt (IUShort, [])]
   in
+  let fp_types =
+    if Options.Float.get () then [floatType; doubleType] else [doubleType]
+  in
   let types =
-    if Float.get () then [floatType; doubleType] @ types else types
+    if FloatingPoint.get () then fp_types @ types else types
   in
   let types =
     if LongLong.get () then [longLongType; ulongLongType] @ types else types
   in
   let types =
-    if FloatOnly.get () then [floatType; doubleType] else types
+    if FloatingPointOnly.get () then fp_types else types
   in
   let types =
     (* There is a conflict between [-int-only] and [-float-only]; the former
@@ -256,7 +259,7 @@ let choose_binop typ =
   let binops =
     if Options.DivMod.get () then
       if Cil.isIntegralType typ then
-        [Div; Mod] @ binops
+        [Div] @ (if Options.Mod.get () then [Mod] else []) @ binops
       else
         [Div] @ binops
     else

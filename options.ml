@@ -78,15 +78,21 @@ module MaxArgs = Int
     let help = "set maximal number of function arguments"
   end)
 
-module Float = True
+module FloatingPoint = True
   (struct
-    let option_name = "-ldrgen-float"
+    let option_name = "-ldrgen-fp"
     let help = "allow generation of floating-point arithmetic"
   end)
 
-module FloatOnly = False
+module Float = True
   (struct
-    let option_name = "-ldrgen-float-only"
+    let option_name = "-ldrgen-float"
+    let help = "allow generation of the float type if -ldrgen-fp is set"
+  end)
+
+module FloatingPointOnly = False
+  (struct
+    let option_name = "-ldrgen-fp-only"
     let help = "allow *only* generation of floating-point arithmetic but \
                 no integer arithmetic"
   end)
@@ -107,6 +113,13 @@ module DivMod = True
   (struct
     let option_name = "-ldrgen-div-mod"
     let help = "allow generation of division and modulo operations"
+  end)
+
+module Mod = True
+  (struct
+    let option_name = "-ldrgen-mod"
+    let help = "allow generation of modulo operations if -ldrgen-divmod \
+                is set"
   end)
 
 module Bitwise = True

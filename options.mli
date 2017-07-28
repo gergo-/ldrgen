@@ -29,11 +29,13 @@ module BlockLength: Parameter_sig.Int
 module MaxLive: Parameter_sig.Int
 module MaxArgs: Parameter_sig.Int
 
+module FloatingPoint: Parameter_sig.Bool
 module Float: Parameter_sig.Bool
-module FloatOnly: Parameter_sig.Bool
+module FloatingPointOnly: Parameter_sig.Bool
 module IntOnly: Parameter_sig.Bool
 module LongLong: Parameter_sig.Bool
 module DivMod: Parameter_sig.Bool
+module Mod: Parameter_sig.Bool
 module Bitwise: Parameter_sig.Bool
 module Loops: Parameter_sig.Bool
 module WhileLoops: Parameter_sig.Bool
