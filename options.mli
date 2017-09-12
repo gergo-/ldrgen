@@ -34,6 +34,7 @@ module Float: Parameter_sig.Bool
 module FloatingPointOnly: Parameter_sig.Bool
 module IntOnly: Parameter_sig.Bool
 module LongLong: Parameter_sig.Bool
+module PointerArgs: Parameter_sig.Bool
 module DivMod: Parameter_sig.Bool
 module Mod: Parameter_sig.Bool
 module Bitwise: Parameter_sig.Bool

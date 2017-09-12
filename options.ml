@@ -109,6 +109,12 @@ module LongLong = True
     let help = "allow generation of long long arithmetic"
   end)
 
+module PointerArgs = True
+  (struct
+    let option_name = "-ldrgen-pointer-args"
+    let help = "allow generation of pointer arguments"
+  end)
+
 module DivMod = True
   (struct
     let option_name = "-ldrgen-div-mod"

@@ -164,6 +164,7 @@ let gen_local_init lval =
 
 let new_lval () =
   if List.length !fundec.sformals < Options.MaxArgs.get () &&
+     Options.PointerArgs.get () &&
      Random.float 1.0 < 0.1
   then
     (* Make a parameter of pointer type. *)
