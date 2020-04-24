@@ -129,7 +129,10 @@ or
     opam install frama-c-base
 
 The latter should ask you for fewer additional system libraries to install,
-but I have not tested ldrgen with it.
+but I have not tested ldrgen with it. See
+<https://frama-c.com/install-20.0-Calcium.html#installing-frama-c-via-opam>
+for more information on installing Frama-C via OPAM. ldrgen is known to work
+with Frama-C 20.0 (Calcium) on OCaml 4.10.0 installed via OPAM 2.0.7.
 
 With Frama-C installed and the `frama-c` executable in your path, you can
 compile ldrgen by running `make` and install it with `make install`. It will

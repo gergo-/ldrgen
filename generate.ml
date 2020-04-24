@@ -565,7 +565,7 @@ and gen_while_loop ~depth ~live () =
       (body_live_in', assign_stmt :: stmts)
     end
   in
-  let loop = Cil.mkWhile ~guard:cond ~body:stmts' in
+  let loop = Cil.mkLoop ~sattr:[] ~guard:cond ~body:stmts' in
   let live =
     LvalSet.union
       (LvalSet.union cond_new_live body_live_in')
