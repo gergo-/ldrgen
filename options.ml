@@ -156,7 +156,7 @@ let initialize () =
   (* Fake some command line settings to keep Frama-C from complaining about
      missing input files, and about problems preprocessing [/dev/null]. *)
   Kernel.Verbose.set 0;
-  Kernel.Files.set ["/dev/null"];
+  Kernel.Files.set [Datatype.Filepath.of_string "/dev/null"];
   Kernel.CppCommand.set "/bin/true";
   Kernel.CppGnuLike.set false;
   (* Initialize the random number generator. *)
