@@ -217,7 +217,9 @@ let gen_lval_use ~num_live () =
   (live, exp)
 
 let gen_leaf_exp ~depth ~num_live () =
+  ignore depth;
   let gen_const ~num_live () =
+    ignore num_live;
     let typ = gen_type () in
     (LvalSet.empty, gen_const typ)
   in
@@ -354,6 +356,7 @@ let gen_cond ~num_live () =
   (live, Cil.mkBinOp ~loc cmp lexp rexp)
 
 let gen_assignment_to lval ~depth ~live () =
+  ignore depth;
   let num_live = LvalSet.cardinal live in
   let typ = Cil.typeOfLval lval in
   let (new_live_vars, exp) = gen_exp ~num_live ~typ () in
@@ -416,6 +419,7 @@ and gen_loop ~depth ~live () =
   generator ~depth ~live ()
 
 and gen_for_loop ~depth ~live () =
+  ignore depth;
   (* loop counter *)
   let i = gen_local_var ~basename:"i" Cil.uintType in
   (* array parameter *)
