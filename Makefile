@@ -21,12 +21,23 @@
 PLUGIN_NAME = Ldrgen
 PLUGIN_VERSION = 0.0.1
 
+# Hook into Frama-C's plugin build system, which does the rest.
+ifndef FRAMAC_SHARE
+FRAMAC_SHARE := $(shell frama-c-config -print-share-path)
+endif
+
+ifndef FRAMAC_LIBDIR
+FRAMAC_LIBDIR := $(shell frama-c-config -print-libpath)
+endif
+
+# Allow Frama-C's internal compilation.
+PLUGIN_DIR ?=.
+PLUGIN_ENABLED:=yes
+PLUGIN_HAS_MLI:=yes
+
 # These are the names of the modules that will be compiled and linked
 # together to form the plugin.
 PLUGIN_CMO = options utils generate
 
-# Hook into Frama-C's plugin build system, which does the rest.
-FRAMAC_SHARE := $(shell frama-c-config -print-share-path)
-FRAMAC_LIBDIR := $(shell frama-c-config -print-libpath)
 
 include $(FRAMAC_SHARE)/Makefile.dynamic
