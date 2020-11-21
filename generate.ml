@@ -311,7 +311,14 @@ let rec gen_exp ~depth ~num_live () =
       [gen_leaf_exp]
   in
   let f = Utils.random_select generators in
-  f ~depth ~num_live ()
+  let live, exp = f ~depth ~num_live () in
+  (* We sometimes generate expressions that constant fold to floating point
+     infinities. These would get printed as "inff" and cause compiler
+     errors. In such cases, try again. *)
+  if Utils.is_infinity exp then
+    gen_exp ~depth ~num_live ()
+  else
+    live, exp
 
 and gen_binop ~depth ~num_live () =
   let depth = depth + 1 in

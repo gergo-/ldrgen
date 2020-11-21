@@ -35,3 +35,6 @@ val free_vars: Cil_types.exp -> Cil_types.lval list
 (** Print the ldrgen-specific arguments that were set on the command line.
     They are printed separated by spaces, with an initial space. *)
 val print_command_line_args: Format.formatter -> unit -> unit
+
+(** Return [true] iff the expression is an infinite constant. *)
+val is_infinity: Cil_types.exp -> bool

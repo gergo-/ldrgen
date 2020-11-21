@@ -66,3 +66,7 @@ let print_command_line_args fmt () =
     | [] -> ()
   in
   process_options (Array.to_list Sys.argv)
+
+let is_infinity = function
+  | { enode = Const (CReal (f, _, _)) } -> not (Float.is_finite f)
+  | _ -> false
