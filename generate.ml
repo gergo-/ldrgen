@@ -631,8 +631,8 @@ let gen_random_function ast =
      prototype: If the list of formals is empty, the argument list will be
      (void) instead of empty (). *)
   begin match f with
-    | GFun (fdec, _) -> Cil.setFormals fdec fdec.sformals
-    | _ -> ()
+  | GFun (fdec, _) -> Cil.setFormals fdec fdec.sformals
+  | _ -> ()
   end;
   let global_array_size_var =
     match !array_size_var with
