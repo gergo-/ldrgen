@@ -29,7 +29,7 @@ module LvalSet = struct
   let singleton_vi vi = singleton (Cil.var vi)
 end
 
-let loc = Cil.builtinLoc
+let loc = Location.unknown
 
 (* The function we're building. *)
 let fundec = ref (Cil.emptyFunction "fn1")
@@ -458,8 +458,11 @@ and gen_for_loop ~depth ~live () =
   in
   let use_var = Utils.random_select (Utils.free_vars rexp) in
   let use_stmt =
-    let off = Index (Cil.evar i, NoOffset) in
-    let array_elem = (Var a, off) in
+    let array_elem =
+      Cil.mkMem
+        ~addr:(Cil.mkBinOp ~loc PlusPI (Cil.evar a) (Cil.evar i))
+        ~off:NoOffset
+    in
     let array_elem_exp = Cil.new_exp ~loc (Lval array_elem) in
     Cil.mkStmtOneInstr ~valid_sid:true (Set (use_var, array_elem_exp, loc))
   in
@@ -611,6 +614,13 @@ let gen_function () =
          let init = gen_local_init vi in
          !fundec.sbody.bstmts <- init :: !fundec.sbody.bstmts)
     live';
+  (* Register the function definition as global. *)
+  !fundec.svar.vdefined <- true;
+  Globals.Functions.replace_by_definition !fundec.sspec !fundec loc;
+  (* Compute the control-flow graph of the function to ensure a well-formed AST.
+     This is typically needed when several analyses are chained in Frama-C. *)
+  Cfg.prepareCFG !fundec;
+  Cfg.cfgFun !fundec;
   let f = GFun (!fundec, loc) in
   f
 
@@ -626,11 +636,12 @@ let gen_random_function ast =
   end;
   let global_array_size_var =
     match !array_size_var with
-    | Some vi -> [GVarDecl (vi, loc)]
+    | Some vi ->
+      Globals.Vars.add vi { init = None };
+      [GVarDecl (vi, loc)]
     | None -> []
   in
-  let globals = global_array_size_var @ f :: ast.globals in
-  { ast with globals }
+  ast.globals <- global_array_size_var @ f :: ast.globals
 
 let gen_header ast =
   let header = Format.asprintf
@@ -639,14 +650,23 @@ let gen_header ast =
      // Command line arguments:%a"
     (Options.Seed.get ()) Utils.print_command_line_args ()
   in
-  { ast with globals = GText header :: ast.globals }
+  ast.globals <- GText header :: ast.globals
 
 let run () =
   if Options.Run.get () then begin
     Options.initialize ();
-    let ast = gen_random_function (Ast.get ()) in
-    let ast' = gen_header ast in
-    Format.printf "%a" Printer.pp_file ast'
+    let prj = Project.create_by_copy ~last:true "ldrgen" in
+    Project.on
+      prj
+      (fun () ->
+         let ast = Ast.get () in
+         gen_random_function ast;
+         gen_header ast;
+         Ast.mark_as_grown ();
+         Format.printf "%a" Printer.pp_file ast;
+         let selection = State_selection.with_dependencies Options.Run.self in
+         Project.clear ~selection ~project:prj ())
+      ()
   end
 
 let () =
