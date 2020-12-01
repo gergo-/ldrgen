@@ -78,6 +78,20 @@ module MaxArgs = Int
     let help = "set maximal number of function arguments"
   end)
 
+module Arrays = False
+  (struct
+    let option_name = "-ldrgen-arrays"
+    let help = "allow generation of arrays"
+  end)
+
+module MaxArrayLength = Int
+  (struct
+    let option_name = "-ldrgen-max-array-length"
+    let arg_name = "n"
+    let default = 5
+    let help = "set maximal number of array elements"
+  end)
+
 module FloatingPoint = True
   (struct
     let option_name = "-ldrgen-fp"
