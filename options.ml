@@ -31,7 +31,7 @@ module Run = False
     let help = "generate a random C function"
   end)
 
-module CheckAst = False
+module CheckAst = True
   (struct
     let option_name = "-ldrgen-check-ast"
     let help = "perform sanity checks on the generated ast"
