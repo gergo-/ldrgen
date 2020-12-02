@@ -78,7 +78,7 @@ module MaxArgs = Int
     let help = "set maximal number of function arguments"
   end)
 
-module Arrays = False
+module Arrays = True
   (struct
     let option_name = "-ldrgen-arrays"
     let help = "allow generation of arrays"
