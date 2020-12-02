@@ -167,17 +167,20 @@ let gen_array_elt (lhost, offset as lval) =
     in
     raise (Invalid_argument err_msg)
 
+let gen_lval_occurrence lval =
+  if Cil.(isArrayType (typeOfLval lval)) then
+    (* Arrays are generated as a single lvalue with array type. Here we need to
+       actually pick an element of the array [lval]. *)
+    gen_array_elt lval
+  else
+    lval
+
 (* Initialize a local variable to a constant or a parameter. *)
 let gen_local_init lval =
   let gen_param_use typ =
     if not (LvalSet.is_empty !param_lvals) then
       let lval = Utils.random_select_from_set !param_lvals in
-      let lval =
-        if Cil.(isArrayType (typeOfLval lval)) then
-          gen_array_elt lval
-        else
-          lval
-      in
+      let lval = gen_lval_occurrence lval in
       let e = Cil.new_exp ~loc (Lval lval) in
       Cil.mkCast ~force:false ~e ~newt:typ
     else
@@ -258,14 +261,7 @@ let gen_lval_use ~num_live () =
       let f = Utils.random_select [use_param; use_local] in
       f ()
   in
-  let lval =
-    (* Array are generated as a single lvalue with array type. Here we need to
-       actually pick an element of the array [lval]. *)
-    if Cil.(isArrayType (typeOfLval lval)) then
-      gen_array_elt lval
-    else
-      lval
-  in
+  let lval = gen_lval_occurrence lval in
   (* We never want to generate assignments to the function's formal
      parameters. This is easy: We simply never put them into the live set,
      which is where variables to assign to are selected from.
