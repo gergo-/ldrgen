@@ -42,5 +42,7 @@ module Loops: Parameter_sig.Bool
 module WhileLoops: Parameter_sig.Bool
 module ForLoops: Parameter_sig.Bool
 
+module CheckAst: Parameter_sig.Bool
+
 (** Initialize global state, such as the random number generator. *)
 val initialize: unit -> unit

@@ -669,6 +669,8 @@ let run () =
          let ast = Ast.get () in
          gen_random_function ast;
          gen_header ast;
+         if Options.CheckAst.get () then
+           Filecheck.check_ast ~is_normalized:true ~ast "ldrgen";
          Ast.mark_as_grown ();
          Format.printf "%a" Printer.pp_file ast;
          let selection = State_selection.with_dependencies Options.Run.self in

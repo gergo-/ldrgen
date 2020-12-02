@@ -31,6 +31,12 @@ module Run = False
     let help = "generate a random C function"
   end)
 
+module CheckAst = True
+  (struct
+    let option_name = "-ldrgen-check-ast"
+    let help = "perform sanity checks on the generated ast"
+  end)
+
 module Seed = Zero
   (struct
     let option_name = "-ldrgen-seed"
