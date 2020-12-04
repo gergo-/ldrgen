@@ -28,6 +28,8 @@ module StmtDepth: Parameter_sig.Int
 module BlockLength: Parameter_sig.Int
 module MaxLive: Parameter_sig.Int
 module MaxArgs: Parameter_sig.Int
+module Arrays: Parameter_sig.Bool
+module MaxArrayLength: Parameter_sig.Int
 
 module FloatingPoint: Parameter_sig.Bool
 module Float: Parameter_sig.Bool

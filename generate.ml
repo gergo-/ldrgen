@@ -146,11 +146,39 @@ let gen_const typ =
   | _ ->
     Cil.mkCast ~force:false ~e:(Cil.zero ~loc) ~newt:typ
 
+let gen_array_elt (lhost, offset as lval) =
+  match Cil.typeOfLval lval with
+  | TArray (_, e, _, _) ->
+    let offset =
+      match offset with
+      | NoOffset ->
+        Index (Cil.(integer ~loc (Random.int (lenOfArray e))), NoOffset)
+      | _ ->
+        assert false
+    in
+    lhost, offset
+  | typ ->
+    let err_msg =
+      Format.asprintf
+        "Expected lvalue of array type, got `%a'."
+        Cil_printer.pp_typ typ
+    in
+    raise (Invalid_argument err_msg)
+
+let gen_lval_occurrence lval =
+  if Cil.(isArrayType (typeOfLval lval)) then
+    (* Arrays are generated as a single lvalue with array type. Here we need to
+       actually pick an element of the array [lval]. *)
+    gen_array_elt lval
+  else
+    lval
+
 (* Initialize a local variable to a constant or a parameter. *)
 let gen_local_init lval =
   let gen_param_use typ =
     if not (LvalSet.is_empty !param_lvals) then
       let lval = Utils.random_select_from_set !param_lvals in
+      let lval = gen_lval_occurrence lval in
       let e = Cil.new_exp ~loc (Lval lval) in
       Cil.mkCast ~force:false ~e ~newt:typ
     else
@@ -163,23 +191,46 @@ let gen_local_init lval =
   Cil.mkStmtOneInstr ~valid_sid:true assign
 
 let new_lval () =
-  if List.length !fundec.sformals < Options.MaxArgs.get () &&
-     Options.PointerArgs.get () &&
-     Random.float 1.0 < 0.1
-  then
-    (* Make a parameter of pointer type. *)
-    let ptr_typ = TPtr (gen_type (), []) in
-    let vi = gen_formal_var ptr_typ in
+  let typ = gen_type () in
+  let vi =
+    if List.length !fundec.sformals < Options.MaxArgs.get () &&
+       (Options.PointerArgs.get () || Options.Arrays.get ()) &&
+       Random.float 1.0 < 0.1
+    then
+      (* Make a parameter of pointer or array type. *)
+      let ptr_or_array_typ =
+        let types =
+          if Options.PointerArgs.get () then
+            [TPtr (typ, [])]
+          else
+            []
+        in
+        let types =
+          if Options.Arrays.get () then
+            let length = Random.int (Options.MaxArrayLength.get ()) + 1 in
+            (* One-dimensional array. *)
+            TArray
+              (typ,
+               Some (Cil.integer ~loc length),
+               { scache = Not_Computed },
+               [])
+            :: types
+          else
+            types
+        in
+        Utils.random_select types
+      in
+      gen_formal_var ptr_or_array_typ
+    else
+      (* Make a plain variable. *)
+      let vi = gen_var typ in
+      vi.vreferenced <- true;
+      vi
+  in
+  if Cil.isPointerType vi.vtype then
     (Mem (Cil.evar vi), NoOffset)
   else
-    (* Make a plain variable. *)
-    let vi = gen_var (gen_type ()) in
-    vi.vreferenced <- true;
-    (* This may be a previously known parameter variable of pointer type. *)
-    if Cil.isPointerType vi.vtype then
-      (Mem (Cil.evar vi), NoOffset)
-    else
-      (Var vi, NoOffset)
+    (Var vi, NoOffset)
 
 let gen_lval_use ~num_live () =
   (* Select a known local var or parameter of the function, or generate a
@@ -208,6 +259,7 @@ let gen_lval_use ~num_live () =
       let f = Utils.random_select [use_param; use_local] in
       f ()
   in
+  let lval = gen_lval_occurrence lval in
   (* We never want to generate assignments to the function's formal
      parameters. This is easy: We simply never put them into the live set,
      which is where variables to assign to are selected from.
