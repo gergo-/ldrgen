@@ -79,6 +79,36 @@ let gen_type () =
   in
   Utils.random_select types
 
+let gen_compound_type ~base_type =
+  let rec gen_multidim_array ~dim ~typ =
+    if dim = 0 then
+      typ
+    else
+      let typ =
+        let length = Random.int (Options.MaxArrayLengthPerDim.get ()) + 1 in
+        TArray
+          (typ,
+           Some (Cil.integer ~loc length),
+           { scache = Not_Computed },
+           [])
+      in
+      gen_multidim_array ~dim:(dim - 1) ~typ
+  in
+  let types =
+    if Options.PointerArgs.get () then
+      [TPtr (base_type, [])]
+    else
+      []
+  in
+  let types =
+    if Options.Arrays.get () then
+      let dim = Random.int (Options.MaxArrayDim.get ()) + 1 in
+      gen_multidim_array ~dim ~typ:base_type :: types
+    else
+      types
+  in
+  Utils.random_select types
+
 let gen_local_var ?basename typ =
   let name = match basename with Some n -> n | None -> "v" in
   Cil.makeLocalVar !fundec name typ
@@ -147,15 +177,20 @@ let gen_const typ =
     Cil.mkCast ~force:false ~e:(Cil.zero ~loc) ~newt:typ
 
 let gen_array_elt (lhost, offset as lval) =
+  let rec gen_offset = function
+    | TInt _ | TFloat _ ->
+      NoOffset
+    | TArray (t, e, _, _) ->
+      Index
+        (Cil.(integer ~loc (Random.int (lenOfArray e))),
+         gen_offset t)
+    | _ ->
+      assert false
+  in
   match Cil.typeOfLval lval with
-  | TArray (_, e, _, _) ->
-    let offset =
-      match offset with
-      | NoOffset ->
-        Index (Cil.(integer ~loc (Random.int (lenOfArray e))), NoOffset)
-      | _ ->
-        assert false
-    in
+  | TArray _ as typ ->
+    assert (offset = NoOffset); (* By construction. See [new_lval]. *)
+    let offset = gen_offset typ in
     lhost, offset
   | typ ->
     let err_msg =
@@ -198,28 +233,7 @@ let new_lval () =
        Random.float 1.0 < 0.1
     then
       (* Make a parameter of pointer or array type. *)
-      let ptr_or_array_typ =
-        let types =
-          if Options.PointerArgs.get () then
-            [TPtr (typ, [])]
-          else
-            []
-        in
-        let types =
-          if Options.Arrays.get () then
-            let length = Random.int (Options.MaxArrayLength.get ()) + 1 in
-            (* One-dimensional array. *)
-            TArray
-              (typ,
-               Some (Cil.integer ~loc length),
-               { scache = Not_Computed },
-               [])
-            :: types
-          else
-            types
-        in
-        Utils.random_select types
-      in
+      let ptr_or_array_typ = gen_compound_type ~base_type:typ in
       gen_formal_var ptr_or_array_typ
     else
       (* Make a plain variable. *)

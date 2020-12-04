@@ -90,12 +90,20 @@ module Arrays = True
     let help = "allow generation of arrays"
   end)
 
-module MaxArrayLength = Int
+module MaxArrayDim = Int
   (struct
-    let option_name = "-ldrgen-max-array-length"
+    let option_name = "-ldrgen-max-array-dim"
+    let arg_name = "n"
+    let default = 3
+    let help = "set maximal number of array dimensions"
+  end)
+
+module MaxArrayLengthPerDim = Int
+  (struct
+    let option_name = "-ldrgen-max-array-length-per-dim"
     let arg_name = "n"
     let default = 5
-    let help = "set maximal number of array elements"
+    let help = "set maximal number of array elements per dimension"
   end)
 
 module FloatingPoint = True
