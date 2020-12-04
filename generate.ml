@@ -149,14 +149,12 @@ let gen_const typ =
 let gen_array_elt (lhost, offset as lval) =
   match Cil.typeOfLval lval with
   | TArray (_, e, _, _) ->
-    (* Generate random array index in [0, array_length - 1], just for the last
-       array dimension. *)
     let offset =
       match offset with
       | NoOffset ->
         Index (Cil.(integer ~loc (Random.int (lenOfArray e))), NoOffset)
       | _ ->
-        offset
+        assert false
     in
     lhost, offset
   | typ ->
