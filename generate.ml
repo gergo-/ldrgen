@@ -174,7 +174,7 @@ let gen_const typ =
     let bound = Utils.random_select [1e3; 1e10; max] in
     Cil.kfloat ~loc fkind (float_of_int sign *. Random.float bound)
   | _ ->
-    Cil.mkCast ~force:false ~e:(Cil.zero ~loc) ~newt:typ
+    Cil.mkCast ~force:false (Cil.zero ~loc) ~newt:typ
 
 let gen_array_elt (lhost, offset as lval) =
   let rec gen_offset = function
@@ -215,7 +215,7 @@ let gen_local_init lval =
       let lval = Utils.random_select_from_set !param_lvals in
       let lval = gen_lval_occurrence lval in
       let e = Cil.new_exp ~loc (Lval lval) in
-      Cil.mkCast ~force:false ~e ~newt:typ
+      Cil.mkCast ~force:false e ~newt:typ
     else
       (* OK, fall back to constants. *)
       gen_const typ
@@ -305,7 +305,7 @@ let gen_common_type_exprs expr1 expr2 =
     (expr1, expr2)
   else
     let typ = Utils.random_select [Cil.typeOf expr1; Cil.typeOf expr2] in
-    let cast_to_common_typ e = Cil.mkCast ~force:false ~e ~newt:typ in
+    let cast_to_common_typ e = Cil.mkCast ~force:false e ~newt:typ in
     (cast_to_common_typ expr1, cast_to_common_typ expr2)
 
 let choose_binop typ =
@@ -408,7 +408,7 @@ and gen_unop ~depth ~num_live () =
 let gen_exp ~num_live ?typ () =
   let live, exp = gen_exp ~depth:1 ~num_live () in
   match typ with
-  | Some typ -> (live, Cil.mkCast ~force:false ~e:exp ~newt:typ)
+  | Some typ -> (live, Cil.mkCast ~force:false exp ~newt:typ)
   | None -> (live, exp)
 
 let gen_cond ~num_live () =
@@ -546,10 +546,10 @@ and gen_for_loop ~depth ~live () =
   let for_stmt_list =
     Cil.mkForIncr
       ~iter:i
-      ~first:(Cil.mkCast ~force:true ~e:(Cil.zero ~loc) ~newt:Cil.uintType)
+      ~first:(Cil.mkCast ~force:true (Cil.zero ~loc) ~newt:Cil.uintType)
       ~stopat:(array_size ())
       ~incr:(Cil.one ~loc)
-      ~body
+      ~body ()
   in
   let for_stmt =
     Cil.mkStmt ~valid_sid:true (Block (Cil.mkBlock for_stmt_list))
@@ -645,7 +645,7 @@ and gen_while_loop ~depth ~live () =
       (body_live_in', assign_stmt :: stmts)
     end
   in
-  let loop = Cil.mkLoop ~sattr:[] ~guard:cond ~body:stmts' in
+  let loop = Cil.mkLoop ~sattr:[] ~guard:cond ~body:stmts' () in
   let live =
     LvalSet.union
       (LvalSet.union cond_new_live body_live_in')
