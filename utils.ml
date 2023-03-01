@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  ldrgen, a generator of random C programs                              *)
-(*  Copyright (C) 2017, Gergö Barany <gergo@tud.at>                       *)
+(*  Copyright (C) 2017-2013, Gergö Barany <gergo@tud.at>                  *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -68,5 +68,5 @@ let print_command_line_args fmt () =
   process_options (Array.to_list Sys.argv)
 
 let is_infinity = function
-  | { enode = Const (CReal (f, _, _)) } -> not (Float.is_finite f)
+  | { enode = Const (CReal (f, _, _)); _ } -> not (Float.is_finite f)
   | _ -> false

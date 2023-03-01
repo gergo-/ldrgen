@@ -120,24 +120,18 @@ tools.
 Your favorite package manager may provide a Frama-C package that installs
 all you need. Otherwise, the easiest way to install Frama-C is to first
 install OPAM, the OCaml package manager <http://opam.ocaml.org/>. You can
-then run
+then run:
 
     opam install frama-c
 
-or
-
-    opam install frama-c-base
-
-The latter should ask you for fewer additional system libraries to install,
-but I have not tested ldrgen with it. See
-<https://www.frama-c.com/html/get-frama-c.html>
-for more information on installing Frama-C via OPAM. ldrgen is known to work
-with Frama-C 23.1 (Vanadium) on OCaml 4.11.1 installed via OPAM 2.0.7.
+See <https://www.frama-c.com/html/get-frama-c.html> for more information on
+installing Frama-C via OPAM. ldrgen is known to work with Frama-C 26.1
+(Iron) on OCaml 4.11.1 installed via OPAM 2.0.7.
 
 With Frama-C installed and the `frama-c` executable in your path, you can
-compile ldrgen by running `make` and install it with `make install`. It will
-be installed in Frama-C's plugin directory. You can remove it again by
-running `make uninstall`.
+compile ldrgen by running `dune build` and install it with `dune install`.
+It will be installed in Frama-C's plugin directory. You can remove it again
+by running `dune uninstall`.
 
 For now, run ldrgen as `frama-c -ldrgen`. See `frama-c -ldrgen-h` for
 documentation on some command-line flags that can affect the generated code.

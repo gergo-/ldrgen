@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  ldrgen, a generator of random C programs                              *)
-(*  Copyright (C) 2017, Gergö Barany <gergo@tud.at>                       *)
+(*  Copyright (C) 2017-2013, Gergö Barany <gergo@tud.at>                  *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -51,6 +51,13 @@ let array_size () =
     array_size_var := Some vi;
     Cil.evar vi
 
+(* Build an assignment of the value of [exp] to [lval]. The [exp] is
+   automatically cast to the [lval]'s type if needed. *)
+let assign lval exp =
+  let typ = Cil.typeOfLval lval in
+  let exp = Cil.mkCast ~force:false exp ~newt:typ in
+  Set (lval, exp, loc)
+
 let gen_type () =
   let open Options in
   let types = [intType; uintType; longType; ulongType;
@@ -89,7 +96,6 @@ let gen_compound_type ~base_type =
         TArray
           (typ,
            Some (Cil.integer ~loc length),
-           { scache = Not_Computed },
            [])
       in
       gen_multidim_array ~dim:(dim - 1) ~typ
@@ -180,7 +186,7 @@ let gen_array_elt (lhost, offset as lval) =
   let rec gen_offset = function
     | TInt _ | TFloat _ ->
       NoOffset
-    | TArray (t, e, _, _) ->
+    | TArray (t, e, _) ->
       Index
         (Cil.(integer ~loc (Random.int (lenOfArray e))),
          gen_offset t)
@@ -222,7 +228,7 @@ let gen_local_init lval =
   in
   let generators = [gen_const; gen_param_use] in
   let f = Utils.random_select generators in
-  let assign = Set (lval, f (Cil.typeOfLval lval), loc) in
+  let assign = assign lval (f (Cil.typeOfLval lval)) in
   Cil.mkStmtOneInstr ~valid_sid:true assign
 
 let new_lval () =
@@ -436,7 +442,7 @@ let gen_assignment_to lval ~depth ~live () =
   let live =
     LvalSet.union (LvalSet.remove lval live) new_live_vars
   in
-  let assign = Set (lval, exp, loc) in
+  let assign = assign lval exp in
   let stmt = Cil.mkStmtOneInstr ~valid_sid:true assign in
   (live, stmt)
 
@@ -527,7 +533,7 @@ and gen_for_loop ~depth ~live () =
   let (llive, lexp) = (LvalSet.empty, Cil.new_exp ~loc (Lval r)) in
   let assign_live, assign_exp = gen_binop_for (llive, lexp) (rlive, rexp) in
   let assign_stmt =
-    Cil.mkStmtOneInstr ~valid_sid:true (Set (r, assign_exp, loc))
+    Cil.mkStmtOneInstr ~valid_sid:true (assign r assign_exp)
   in
   let use_var = Utils.random_select (Utils.free_vars rexp) in
   let use_stmt =
@@ -537,7 +543,7 @@ and gen_for_loop ~depth ~live () =
         ~off:NoOffset
     in
     let array_elem_exp = Cil.new_exp ~loc (Lval array_elem) in
-    Cil.mkStmtOneInstr ~valid_sid:true (Set (use_var, array_elem_exp, loc))
+    Cil.mkStmtOneInstr ~valid_sid:true (assign use_var array_elem_exp)
   in
   (* The body consists of these two assignments. *)
   let use_live = LvalSet.remove r assign_live in
@@ -631,7 +637,7 @@ and gen_while_loop ~depth ~live () =
              assignment to some variable. Pick that variable and remove the
              assignment. *)
           match stmts with
-          | { skind = Instr (Set (lval, _exp, _)) } :: stmts ->
+          | { skind = Instr (Set (lval, _exp, _)); _ } :: stmts ->
             (stmts, lval)
           | _ -> assert false
         end else
@@ -640,7 +646,7 @@ and gen_while_loop ~depth ~live () =
       let body_live_in' =
         LvalSet.union (LvalSet.remove lval body_live_in) newly_live
       in
-      let assign = Set (lval, exp, loc) in
+      let assign = assign lval exp in
       let assign_stmt = Cil.mkStmtOneInstr ~valid_sid:true assign in
       (body_live_in', assign_stmt :: stmts)
     end
@@ -743,6 +749,3 @@ let run () =
          Project.clear ~selection ~project:prj ())
       ()
   end
-
-let () =
-  Db.Main.extend run
