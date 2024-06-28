@@ -125,8 +125,8 @@ then run:
     opam install frama-c
 
 See <https://www.frama-c.com/html/get-frama-c.html> for more information on
-installing Frama-C via OPAM. ldrgen is known to work with Frama-C 26.1
-(Iron) on OCaml 4.11.1 installed via OPAM 2.0.7.
+installing Frama-C via OPAM. ldrgen is known to work with Frama-C 29.0
+(Copper) on OCaml 5.2.0 installed via OPAM 2.1.6.
 
 With Frama-C installed and the `frama-c` executable in your path, you can
 compile ldrgen by running `dune build` and install it with `dune install`.
