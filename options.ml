@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  ldrgen, a generator of random C programs                              *)
-(*  Copyright (C) 2017-2024, Gergö Barany <gergo@tud.at>                  *)
+(*  Copyright (C) 2017-2025, Gergö Barany <gergo@tud.at>                  *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -184,8 +184,8 @@ let initialize () =
   (* Fake some command line settings to keep Frama-C from complaining about
      missing input files, and about problems preprocessing [/dev/null]. *)
   Kernel.Verbose.set 0;
-  Kernel.Files.set [Datatype.Filepath.of_string "/dev/null"];
-  Kernel.CppCommand.set "/bin/true";
+  Kernel.Files.set [Fc_Filepath.of_string "/dev/null"];
+  Kernel.CppCommand.set "/usr/bin/true";
   Kernel.CppGnuLike.set false;
   (* Initialize the random number generator. *)
   if Seed.is_default () then begin

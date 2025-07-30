@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*                                                                        *)
 (*  ldrgen, a generator of random C programs                              *)
-(*  Copyright (C) 2017-2024, Gergö Barany <gergo@tud.at>                  *)
+(*  Copyright (C) 2017-2025, Gergö Barany <gergo@tud.at>                  *)
 (*                                                                        *)
 (*  This program is free software: you can redistribute it and/or modify  *)
 (*  it under the terms of the GNU General Public License as published by  *)
@@ -18,7 +18,7 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Cil
+open Cil_const
 open Cil_types
 open Cil_datatype
 
@@ -46,7 +46,7 @@ let array_size () =
   match !array_size_var with
   | Some vi -> Cil.evar vi
   | None ->
-    let vi = Cil.makeGlobalVar "N" Cil.uintType in
+    let vi = Cil.makeGlobalVar "N" uintType in
     vi.vstorage <- Extern;
     array_size_var := Some vi;
     Cil.evar vi
@@ -62,7 +62,7 @@ let gen_type () =
   let open Options in
   let types = [intType; uintType; longType; ulongType;
                charType; scharType; ucharType;
-               TInt (IShort, []); TInt (IUShort, [])]
+               shortType; ushortType]
   in
   let fp_types =
     if Options.Float.get () then [floatType; doubleType] else [doubleType]
@@ -93,16 +93,13 @@ let gen_compound_type ~base_type =
     else
       let typ =
         let length = Random.int (Options.MaxArrayLengthPerDim.get ()) + 1 in
-        TArray
-          (typ,
-           Some (Cil.integer ~loc length),
-           [])
+        mk_tarray typ (Some (Cil.integer ~loc length))
       in
       gen_multidim_array ~dim:(dim - 1) ~typ
   in
   let types =
     if Options.PointerArgs.get () then
-      [TPtr (base_type, [])]
+      [mk_tptr base_type]
     else
       []
   in
@@ -125,7 +122,7 @@ let gen_formal_var ?basename typ =
   if List.length !fundec.sformals < Options.MaxArgs.get () then begin
     let name = match basename with Some n -> n | None -> "p" in
     let vi = Cil.makeFormalVar !fundec name typ in
-    if Cil.isPointerType typ then
+    if Ast_types.is_ptr typ then
       let mem = (Mem (Cil.evar vi), NoOffset) in
       param_lvals := LvalSet.add mem !param_lvals
     else
@@ -161,19 +158,24 @@ let gen_return ?typ () =
   let live = LvalSet.singleton_vi var in
   (live, Cil.mkStmt ~valid_sid:true (Return (Some (Cil.evar var), loc)))
 
+let format_of_fkind = function
+  | FFloat -> Floating_point.Single
+  | FDouble -> Floating_point.Double
+  | FLongDouble -> Floating_point.Double
+
 (* For integer or floating-point types, generate a random number (possibly
    negative) of the appropriate type. For other types, just generate a zero
    of the appropriate type. *)
 let gen_const typ =
   let sign = if Random.bool () then 1 else -1 in
-  match typ with
-  | TInt (ikind, _) ->
+  match typ.tnode with
+  | TInt ikind ->
     let i = Random.bits () in
     (* Make small-ish constants more likely. *)
     let i = if Random.bool () then i mod (1 lsl 16) else i in
     Cil.kinteger ~loc ikind (sign * i)
-  | TFloat (fkind, _) ->
-    let max = Floating_point.max_single_precision_float in
+  | TFloat fkind ->
+    let max = Floating_point.largest_finite_float_of (format_of_fkind fkind) in
     (* Try to allow generation of small constants; without something like
        this, almost all floating point constants would be in the 1e37-1e38
        order of magnitude. *)
@@ -186,14 +188,14 @@ let gen_array_elt (lhost, offset as lval) =
   let rec gen_offset = function
     | TInt _ | TFloat _ ->
       NoOffset
-    | TArray (t, e, _) ->
+    | TArray (t, e) ->
       Index
         (Cil.(integer ~loc (Random.int (lenOfArray e))),
-         gen_offset t)
+         gen_offset t.tnode)
     | _ ->
       assert false
   in
-  match Cil.typeOfLval lval with
+  match (Cil.typeOfLval lval).tnode with
   | TArray _ as typ ->
     assert (offset = NoOffset); (* By construction. See [new_lval]. *)
     let offset = gen_offset typ in
@@ -202,12 +204,12 @@ let gen_array_elt (lhost, offset as lval) =
     let err_msg =
       Format.asprintf
         "Expected lvalue of array type, got `%a'."
-        Cil_printer.pp_typ typ
+        Cil_printer.pp_typ { tnode = typ; tattr = [] }
     in
     raise (Invalid_argument err_msg)
 
 let gen_lval_occurrence lval =
-  if Cil.(isArrayType (typeOfLval lval)) then
+  if Ast_types.is_array (Cil.typeOfLval lval) then
     (* Arrays are generated as a single lvalue with array type. Here we need to
        actually pick an element of the array [lval]. *)
     gen_array_elt lval
@@ -247,7 +249,7 @@ let new_lval () =
       vi.vreferenced <- true;
       vi
   in
-  if Cil.isPointerType vi.vtype then
+  if Ast_types.is_ptr vi.vtype then
     (Mem (Cil.evar vi), NoOffset)
   else
     (Var vi, NoOffset)
@@ -305,8 +307,8 @@ let gen_leaf_exp ~depth ~num_live () =
    the other floating). Return a pair of the two expressions with
    appropriate casts. *)
 let gen_common_type_exprs expr1 expr2 =
-  let is_int e = Cil.(isIntegralType (typeOf e)) in
-  let is_float e = Cil.(isFloatingType (typeOf e)) in
+  let is_int e = Ast_types.is_integral (Cil.typeOf e) in
+  let is_float e = Ast_types.is_float (Cil.typeOf e) in
   if is_int expr1 && is_int expr2 || is_float expr1 && is_float expr2 then
     (expr1, expr2)
   else
@@ -316,7 +318,7 @@ let gen_common_type_exprs expr1 expr2 =
 
 let choose_binop typ =
   let binops =
-    if Cil.isIntegralType typ then
+    if Ast_types.is_integral typ then
       (* Prefer arithmetic over bitwise operations; prefer other bitwise
          operations over shifts. *)
       let bitwise =
@@ -333,7 +335,7 @@ let choose_binop typ =
   in
   let binops =
     if Options.DivMod.get () then
-      if Cil.isIntegralType typ then
+      if Ast_types.is_integral typ then
         [Div] @ (if Options.Mod.get () then [Mod] else []) @ binops
       else
         [Div] @ binops
@@ -403,7 +405,7 @@ and gen_unop ~depth ~num_live () =
   let live, exp = gen_exp ~depth ~num_live () in
   let typ = Cil.typeOf exp in
   let unops =
-    if Cil.isIntegralType typ && Options.Bitwise.get () then
+    if Ast_types.is_integral typ && Options.Bitwise.get () then
       [Neg; BNot; LNot]
     else
       [Neg]
@@ -500,10 +502,10 @@ and gen_loop ~depth ~live () =
 and gen_for_loop ~depth ~live () =
   ignore depth;
   (* loop counter *)
-  let i = gen_local_var ~basename:"i" Cil.uintType in
+  let i = gen_local_var ~basename:"i" uintType in
   (* array parameter *)
   let elem_typ = gen_type () in
-  let ptr_typ = TPtr (elem_typ, []) in
+  let ptr_typ = mk_tptr elem_typ in
   let a = gen_formal_var ~basename:"arr" ptr_typ in
   (* Hack: [gen_formal_var] put [a] into the set of usable formals, but we
      only ever want to use this array in the context of this loop, so remove
@@ -552,7 +554,7 @@ and gen_for_loop ~depth ~live () =
   let for_stmt_list =
     Cil.mkForIncr
       ~iter:i
-      ~first:(Cil.mkCast ~force:true (Cil.zero ~loc) ~newt:Cil.uintType)
+      ~first:(Cil.mkCast ~force:true (Cil.zero ~loc) ~newt:uintType)
       ~stopat:(array_size ())
       ~incr:(Cil.one ~loc)
       ~body ()
